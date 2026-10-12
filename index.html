@@ -1,0 +1,940 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SPMS Claim Packer</title><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>
+<title>SPMS Claim Packer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a working desk. Tabs for the two jobs; the item list on the left, the zip as it will be packed on the right. */
+:root {
+  --bg: #f3f5fb;
+  --panel: #ffffff;
+  --ink: #1b2233;
+  --muted: #5d667a;
+  --line: #d9deea;
+  --brick: #c4402f;
+  --brick-ink: #ffffff;
+  --coin: #e8a317;
+  --sao: #2f6fd6;
+  --office: #2c9a6a;
+  --warn-bg: #fff4dc;
+  --warn-ink: #7a4b00;
+  --bad-bg: #fde7e4;
+  --bad-ink: #9a2516;
+  --ok-ink: #1f7a50;
+  --ai-bg: #eef3ff;
+  --ai-ink: #2a4c9a;
+  --display: "Press Start 2P", ui-monospace, monospace;
+  --body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151d; --panel: #1b202b; --ink: #e8ebf3; --muted: #9aa3b6; --line: #2c3342;
+    --brick: #e05a47; --brick-ink: #ffffff; --coin: #f0b63a; --sao: #6b9cf0; --office: #4cc08d;
+    --warn-bg: #3a2e12; --warn-ink: #f3cf85; --bad-bg: #3d1d19; --bad-ink: #f5a598; --ok-ink: #6fd3a2;
+    --ai-bg: #1e2a44; --ai-ink: #a9c1f5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151d; --panel: #1b202b; --ink: #e8ebf3; --muted: #9aa3b6; --line: #2c3342;
+  --brick: #e05a47; --brick-ink: #ffffff; --coin: #f0b63a; --sao: #6b9cf0; --office: #4cc08d;
+  --warn-bg: #3a2e12; --warn-ink: #f3cf85; --bad-bg: #3d1d19; --bad-ink: #f5a598; --ok-ink: #6fd3a2;
+  --ai-bg: #1e2a44; --ai-ink: #a9c1f5;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; margin: 0; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px; display: grid; gap: 20px; }
+header { display: grid; gap: 8px; }
+h1 { font-family: var(--display); font-size: clamp(16px, 3vw, 22px); line-height: 1.4; margin: 0; letter-spacing: .02em; text-wrap: balance; }
+h1 .coin { color: var(--coin); }
+header p { margin: 0; color: var(--muted); max-width: 70ch; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; margin: 0; color: var(--muted); }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.tab { border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; background: none; padding: 9px 14px; font-weight: 700; color: var(--muted); margin-bottom: -1px; }
+.tab[aria-selected="true"] { background: var(--panel); border-color: var(--line); color: var(--ink); }
+.grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.side { display: grid; gap: 20px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+@media (max-width: 860px) { .side { position: static; } }
+label.f { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+input[type=text], input[type=number], input[type=password], select {
+  font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 9px; width: 100%; min-width: 0;
+}
+input:focus-visible, select:focus-visible, button:focus-visible, .drop:focus-visible, summary:focus-visible { outline: 2px solid var(--sao); outline-offset: 2px; }
+.row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 7px 12px; }
+button:hover { border-color: var(--muted); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--brick); color: var(--brick-ink); border-color: var(--brick); font-weight: 700; padding: 11px 16px; }
+button.wide { width: 100%; }
+button.ai { background: var(--ai-bg); color: var(--ai-ink); border-color: color-mix(in srgb, var(--ai-ink) 35%, transparent); font-weight: 700; }
+button.link { border: none; background: none; padding: 2px 4px; color: var(--muted); text-decoration: underline; font-size: 13px; }
+.drop { border: 2px dashed var(--line); border-radius: 10px; padding: 22px 16px; text-align: center; color: var(--muted); cursor: pointer; display: grid; gap: 6px; justify-items: center; }
+.drop.over { border-color: var(--brick); background: color-mix(in srgb, var(--brick) 8%, transparent); }
+.drop strong { color: var(--ink); }
+.small { font-size: 13px; color: var(--muted); }
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.items { display: grid; gap: 10px; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: start; }
+.item.example { border-style: dashed; opacity: .8; }
+.thumbs { display: grid; gap: 4px; align-content: start; }
+.thumb { width: 64px; height: 64px; border-radius: 4px; border: 1px solid var(--line); object-fit: cover; background: var(--bg); display: grid; place-items: center; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.fields { display: grid; grid-template-columns: 1.1fr 1.1fr 1.1fr 1.1fr .8fr; gap: 8px; min-width: 0; }
+@media (max-width: 700px) { .fields { grid-template-columns: 1fr 1fr; } }
+.fields label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); min-width: 0; }
+.item-foot { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13px; color: var(--muted); }
+.item-foot .name { font-family: var(--mono); font-size: 12px; color: var(--ink); word-break: break-word; }
+.item-note { grid-column: 1 / -1; border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+.item-note.err { background: var(--bad-bg); color: var(--bad-ink); }
+.item-note.ai { background: var(--ai-bg); color: var(--ai-ink); }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; }
+.tag.ex { background: var(--warn-bg); color: var(--warn-ink); }
+.tag.ai { background: var(--ai-bg); color: var(--ai-ink); }
+.tree { font-family: var(--mono); font-size: 12.5px; line-height: 1.7; overflow-x: auto; white-space: pre; margin: 0; }
+.tree .dir { font-weight: 600; }
+.tree .sao { color: var(--sao); }
+.tree .office { color: var(--office); }
+.tree .dim { color: var(--muted); }
+.totals { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; font-variant-numeric: tabular-nums; font-size: 14px; }
+.totals .k { color: var(--muted); }
+.totals .v { text-align: right; font-family: var(--mono); }
+.checks { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13.5px; }
+.checks li { padding: 6px 10px; border-radius: 6px; }
+.checks li.ok { color: var(--ok-ink); padding-block: 2px; }
+.checks li.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.checks li.bad { background: var(--bad-bg); color: var(--bad-ink); }
+.status { font-size: 13px; color: var(--muted); min-height: 1.2em; }
+.status.err { color: var(--bad-ink); }
+textarea { font: 13.5px/1.55 var(--body); width: 100%; min-height: 190px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; resize: vertical; }
+details > summary { cursor: pointer; font-weight: 700; }
+details[open] > summary { margin-bottom: 12px; }
+.mono { font-family: var(--mono); }
+.chip { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; padding: 2px 10px; border-radius: 999px; background: var(--ai-bg); color: var(--ai-ink); font-weight: 700; }
+.chip.off { background: var(--warn-bg); color: var(--warn-ink); }
+.ai-box summary { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tablewrap { overflow-x: auto; }
+table.res { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+table.res th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.res td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.res td.file { font-size: 12.5px; color: var(--muted); max-width: 260px; }
+.cp { font-family: var(--mono); font-size: 13px; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 3px 8px; cursor: pointer; white-space: nowrap; color: var(--ink); }
+.cp:hover { border-color: var(--muted); }
+.cp.done { border-color: var(--ok-ink); color: var(--ok-ink); }
+.cp.empty { color: var(--muted); font-style: italic; font-family: var(--body); }
+.flag { display: block; font-size: 12px; color: var(--warn-ink); margin-top: 3px; }
+@media (prefers-reduced-motion: no-preference) { .drop { transition: border-color .15s, background .15s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1><span class="coin">●</span> SPMS Claim Packer</h1>
+    <p>Drop in your receipts, payment screenshots and the event budget sheet. AI reads each one, every file becomes a PDF named <span class="mono">Vendor (Item) Receipt - $Amount.pdf</span>, and you download the zip for your claim email. Your files only go to the AI you pick below.</p>
+  </header>
+
+  <div class="panel">
+    <details class="ai-box" id="aiBox">
+      <summary>AI reader <span class="chip" id="aiChip">Checking…</span></summary>
+      <div style="display:grid;gap:12px">
+        <div class="row2">
+          <label class="f" for="provider">Use
+            <select id="provider">
+              <option value="builtin">Claude, built in (no key needed)</option>
+              <option value="gemini">Google Gemini, your own key (free tier)</option>
+              <option value="anthropic">Claude API, your own key</option>
+            </select>
+          </label>
+          <label class="f" for="apiKey" id="keyWrap">API key
+            <input type="password" id="apiKey" autocomplete="off" spellcheck="false" placeholder="Paste your key">
+          </label>
+          <label class="f" for="model" id="modelWrap">Model
+            <input type="text" id="model" autocomplete="off" spellcheck="false">
+          </label>
+        </div>
+        <label class="small" style="display:flex;gap:8px;align-items:center" id="rememberWrap"><input type="checkbox" id="remember"> Remember my key on this device</label>
+        <div class="small" id="aiHelp"></div>
+      </div>
+    </details>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab" role="tab" id="tabPack" aria-selected="true" aria-controls="viewPack">Pack a claim</button>
+    <button type="button" class="tab" role="tab" id="tabRead" aria-selected="false" aria-controls="viewRead">FinCon: read a claim zip</button>
+  </div>
+
+  <!-- ===================== PACK ===================== -->
+  <section id="viewPack" role="tabpanel" aria-labelledby="tabPack" style="display:grid;gap:20px">
+    <div class="grid">
+      <div class="panel">
+        <div class="row2">
+          <label class="f" for="event">Event name
+            <input type="text" id="event" placeholder="e.g. Main Committee Bonding Chalet" autocomplete="off">
+          </label>
+          <div style="display:grid;gap:4px">
+            <span class="small">Event budget sheet (.xlsx)</span>
+            <div class="bar">
+              <button type="button" id="budgetBtn">Add budget sheet</button>
+              <span id="budgetName" class="small">Not added yet</span>
+            </div>
+            <input type="file" id="budgetInput" accept=".xlsx,.xls" hidden>
+          </div>
+        </div>
+
+        <div class="drop" id="drop" tabindex="0" role="button" aria-label="Add receipts and proofs of payment">
+          <strong>Drop receipts and payment screenshots here</strong>
+          <span class="small">or click to choose. Photos, screenshots and PDFs. A receipt split over several screenshots is fine; keep them in order.</span>
+        </div>
+        <input type="file" id="fileInput" accept="image/*,application/pdf,.pdf" multiple hidden>
+        <input type="file" id="pageInput" accept="image/*,application/pdf,.pdf" multiple hidden>
+
+        <div class="bar">
+          <button type="button" class="ai" id="readBtn" disabled>Fill in details with AI</button>
+          <span class="status" id="readStatus" role="status"></span>
+        </div>
+
+        <div class="items" id="items"></div>
+      </div>
+
+      <div class="side">
+        <div class="panel">
+          <h2>Your zip</h2>
+          <pre class="tree" id="tree"></pre>
+          <div class="totals" id="totals"></div>
+          <ul class="checks" id="checks"></ul>
+          <button type="button" class="primary wide" id="packBtn">Download zip</button>
+          <div class="status" id="status" role="status"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <details id="emailBox">
+        <summary>Claim email</summary>
+        <div style="display:grid;gap:12px">
+          <div class="row2">
+            <label class="f" for="myName">Your name<input type="text" id="myName" autocomplete="name"></label>
+            <label class="f" for="myMatric">Your matric no.<input type="text" id="myMatric"></label>
+            <label class="f" for="fcName">FinCon name<input type="text" id="fcName" value="Darius Toh Zheng Ting"></label>
+            <label class="f" for="fcMatric">FinCon matric no.<input type="text" id="fcMatric"></label>
+          </div>
+          <div class="small">Send to <span class="mono">spmsclub-financial@e.ntu.edu.sg</span> from your role-based email, CC your director, VP or co-organisers, and attach the zip.</div>
+          <textarea id="emailText" readonly aria-label="Claim email text"></textarea>
+          <div><button type="button" id="copyBtn">Copy email text</button> <span class="small" id="copyStatus"></span></div>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ===================== READ (FinCon) ===================== -->
+  <section id="viewRead" role="tabpanel" aria-labelledby="tabRead" hidden style="display:grid;gap:20px">
+    <div class="panel">
+      <div class="drop" id="zipDrop" tabindex="0" role="button" aria-label="Choose a claim zip">
+        <strong>Drop a claim zip here</strong>
+        <span class="small">or click to choose. Every receipt inside is read for its amount, receipt number, date and invoice number.</span>
+      </div>
+      <input type="file" id="zipInput" accept=".zip,application/zip" hidden>
+      <div class="bar">
+        <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="incProofs"> Also read proofs of payment</label>
+        <button type="button" class="ai" id="zipReadBtn" disabled>Read receipts with AI</button>
+        <span class="status" id="zipStatus" role="status"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="bar" style="justify-content:space-between">
+        <h2 id="resTitle">Receipts</h2>
+        <button type="button" id="copyAllBtn" disabled>Copy table for Excel</button>
+      </div>
+      <p class="small" style="margin:0">Click any value to copy it, then paste it into ICS.</p>
+      <div class="tablewrap"><table class="res" id="resTable"></table></div>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const FUNDS = ["SAO", "SPMS Office"];
+  const KINDS = ["Receipt", "Proof of Payment"];
+  const EXAMPLES = [
+    { fund: "SAO", vendor: "FairPrice", item: "Snacks", kind: "Receipt", amount: "62.95" },
+    { fund: "SAO", vendor: "FairPrice", item: "Snacks", kind: "Proof of Payment", amount: "62.95" },
+    { fund: "SPMS Office", vendor: "Grab", item: "Transport", kind: "Receipt", amount: "265.00" },
+    { fund: "SPMS Office", vendor: "Grab", item: "Transport", kind: "Proof of Payment", amount: "265.00" },
+  ];
+  const DEFAULT_MODEL = { gemini: "gemini-2.5-flash", anthropic: "claude-haiku-5-5", builtin: "" };
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+  const money = (a) => { const n = parseFloat(String(a ?? "").replace(/[^0-9.\-]/g, "")); return isFinite(n) ? n.toFixed(2) : ""; };
+  const clean = (s) => String(s ?? "").replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const isPdf = (f) => f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ======================= AI layer =======================
+  const ai = { provider: "builtin", key: "", model: "", sample: null, maxImages: 0, inClaude: !!(window.claude && window.claude.use) };
+
+  async function initAI() {
+    const saved = store.get("cp_provider");
+    if (ai.inClaude) {
+      try {
+        ai.sample = await window.claude.use("sample");
+        if (ai.sample) { const lim = await ai.sample.limits().catch(() => null); ai.maxImages = lim?.images?.maxCount || 0; if (!ai.maxImages) ai.sample = null; }
+      } catch { ai.sample = null; }
+    }
+    ai.provider = saved || (ai.sample ? "builtin" : "gemini");
+    if (ai.provider === "builtin" && !ai.sample) ai.provider = "gemini";
+    $("provider").value = ai.provider;
+    ai.key = store.get("cp_key_" + ai.provider) || "";
+    $("remember").checked = !!ai.key;
+    $("apiKey").value = ai.key;
+    $("model").value = store.get("cp_model_" + ai.provider) || DEFAULT_MODEL[ai.provider];
+    renderAI();
+  }
+  function aiReady() {
+    if (ai.provider === "builtin") return !!ai.sample;
+    return !!$("apiKey").value.trim();
+  }
+  function renderAI() {
+    const p = $("provider").value;
+    ai.provider = p;
+    const builtin = p === "builtin";
+    $("keyWrap").hidden = builtin; $("modelWrap").hidden = builtin; $("rememberWrap").hidden = builtin;
+    const help = $("aiHelp");
+    if (builtin) {
+      help.innerHTML = ai.sample
+        ? "Uses your own Claude account. The first time, Claude asks you to allow this page to send it images."
+        : "Built-in Claude only works when this page is opened inside Claude. Pick Gemini to use a free key instead.";
+    } else if (p === "gemini") {
+      help.innerHTML = 'Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> (sign in with Google, then "Create API key"). The free tier has a per-minute limit; if it says the limit is reached, wait a minute and try again.'
+        + (ai.inClaude ? ' <strong>Keys only work in the standalone copy of this page, not inside Claude.</strong>' : "");
+    } else {
+      help.innerHTML = 'Create a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. This is paid per use.'
+        + (ai.inClaude ? ' <strong>Keys only work in the standalone copy of this page, not inside Claude.</strong>' : "");
+    }
+    const chip = $("aiChip");
+    const ready = aiReady();
+    chip.className = "chip" + (ready ? "" : " off");
+    chip.textContent = ready ? (builtin ? "Claude, built in" : p === "gemini" ? "Gemini" : "Claude API") : "Not set up";
+    $("readBtn").disabled = !ready || !items.length;
+    $("zipReadBtn").disabled = !ready || !zipFiles.length;
+  }
+  $("provider").addEventListener("change", () => {
+    const p = $("provider").value;
+    store.set("cp_provider", p);
+    $("apiKey").value = store.get("cp_key_" + p) || "";
+    $("remember").checked = !!$("apiKey").value;
+    $("model").value = store.get("cp_model_" + p) || DEFAULT_MODEL[p];
+    renderAI();
+  });
+  $("apiKey").addEventListener("input", () => { if ($("remember").checked) store.set("cp_key_" + ai.provider, $("apiKey").value.trim()); renderAI(); });
+  $("model").addEventListener("input", () => store.set("cp_model_" + ai.provider, $("model").value.trim()));
+  $("remember").addEventListener("change", () => {
+    if ($("remember").checked) store.set("cp_key_" + ai.provider, $("apiKey").value.trim()); else store.del("cp_key_" + ai.provider);
+  });
+
+  function chunkSize() { return ai.provider === "builtin" ? Math.max(1, Math.min(ai.maxImages, 10)) : 10; }
+
+  async function blobToB64(blob) {
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    let s = ""; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  function parseLooseJSON(text) {
+    try { return JSON.parse(text); } catch {}
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/); if (fence) { try { return JSON.parse(fence[1]); } catch {} }
+    const a = text.search(/[\[{]/), b = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+    if (a >= 0 && b > a) return JSON.parse(text.slice(a, b + 1));
+    throw new Error("The AI's answer wasn't in the expected format. Try again.");
+  }
+  class AIError extends Error {}
+  async function askAI(prompt, images) {
+    const p = ai.provider;
+    if (p === "builtin") {
+      if (!ai.sample) throw new AIError("Built-in Claude isn't available here. Pick Gemini in AI reader and add a key.");
+      try { return await ai.sample.json(prompt, { images, modelTier: "default" }); }
+      catch (e) {
+        const m = { not_granted: "You didn't allow this page to use Claude. Reload the page to be asked again.", rate_limited: "Claude says too many requests. Wait a little, then click again.", image_rejected: "Claude couldn't open one of the images. Try a screenshot of it instead.", session_expired: "Sign in to Claude again, then retry.", invalid_json: "Claude's answer came back garbled. Click again.", sampling_disabled: "Claude isn't available for this account.", images_unavailable: "This view can't send images to Claude." };
+        throw new AIError(m[e?.code] || "Claude couldn't answer (" + (e?.code || "error") + "). Click again.");
+      }
+    }
+    const key = $("apiKey").value.trim();
+    if (!key) throw new AIError("Add your API key in AI reader first.");
+    const model = $("model").value.trim() || DEFAULT_MODEL[p];
+    let res;
+    try {
+      if (p === "gemini") {
+        const parts = [{ text: prompt }];
+        for (const b of images) parts.push({ inline_data: { mime_type: "image/jpeg", data: await blobToB64(b) } });
+        res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { responseMimeType: "application/json", temperature: 0 } }),
+        });
+      } else {
+        const content = [];
+        for (const b of images) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobToB64(b) } });
+        content.push({ type: "text", text: prompt });
+        res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content }] }),
+        });
+      }
+    } catch {
+      throw new AIError(ai.inClaude ? "This page can't reach outside services while it's open inside Claude. Use built-in Claude, or the standalone copy of this page for API keys." : "Couldn't reach the AI service. Check your internet connection and try again.");
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = body?.error?.message || res.statusText;
+      if (res.status === 429) throw new AIError("The free limit for this minute is used up. Wait a minute, then click again.");
+      if (res.status === 400 && /API key/i.test(msg) || res.status === 401 || res.status === 403) throw new AIError("The API key was rejected. Check it in AI reader.");
+      if (res.status === 404) throw new AIError(`Model "${model}" wasn't found. Change the model name in AI reader.`);
+      throw new AIError("The AI service returned an error: " + msg);
+    }
+    const text = p === "gemini"
+      ? (body?.candidates?.[0]?.content?.parts || []).map((x) => x.text || "").join("")
+      : (body?.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
+    if (!text) throw new AIError("The AI returned an empty answer. Try again.");
+    return parseLooseJSON(text);
+  }
+
+  // ======================= images & PDFs =======================
+  const thumbCache = new WeakMap();
+  function thumbUrl(f) { if (!thumbCache.has(f)) thumbCache.set(f, URL.createObjectURL(f)); return thumbCache.get(f); }
+  async function decodeImage(f) {
+    if ("createImageBitmap" in window) return await createImageBitmap(f, { imageOrientation: "from-image" });
+    return await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = thumbUrl(f); });
+  }
+  async function canvasFrom(src, w0, h0, max) {
+    const s = Math.min(1, max / Math.max(w0, h0));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w0 * s)); c.height = Math.max(1, Math.round(h0 * s));
+    const g = c.getContext("2d"); g.fillStyle = "#ffffff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(src, 0, 0, c.width, c.height);
+    return c;
+  }
+  const canvasToJpeg = (c, q = 0.88) => new Promise((r) => c.toBlob(r, "image/jpeg", q));
+  async function imageToJpeg(f, max = 2400) {
+    const bmp = await decodeImage(f);
+    const c = await canvasFrom(bmp, bmp.width, bmp.height, max);
+    bmp.close?.();
+    const blob = await canvasToJpeg(c);
+    return { blob, w: c.width, h: c.height };
+  }
+  let pdfReady = false;
+  function setupPdfJs() {
+    if (pdfReady || !window.pdfjsLib) return !!window.pdfjsLib;
+    // The worker script is loaded on the page (window.pdfjsWorker), so pdf.js runs on the main thread.
+    pdfReady = true; return true;
+  }
+  async function pdfPagesToJpegs(data, which, maxW = 1500) {
+    if (!setupPdfJs()) throw new Error("PDF reader didn't load. Reload the page.");
+    const doc = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+    const n = doc.numPages;
+    const pages = which === "all" ? [...Array(n).keys()].map((i) => i + 1) : [...new Set([1, n])];
+    const out = [];
+    for (const num of pages) {
+      const page = await doc.getPage(num);
+      const v1 = page.getViewport({ scale: 1 });
+      const scale = Math.min(3, maxW / v1.width);
+      const vp = page.getViewport({ scale });
+      const c = document.createElement("canvas"); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: g, viewport: vp }).promise;
+      out.push(await canvasToJpeg(c, 0.85));
+    }
+    doc.destroy?.();
+    return { blobs: out, pages: n };
+  }
+  async function fileToAIImages(f) {
+    if (isPdf(f)) return (await pdfPagesToJpegs(new Uint8Array(await f.arrayBuffer()), "ends", 1400)).blobs;
+    return [(await imageToJpeg(f, 1600)).blob];
+  }
+  async function buildPdf(files) {
+    if (files.length === 1 && isPdf(files[0])) return new Uint8Array(await files[0].arrayBuffer());
+    const { PDFDocument } = PDFLib;
+    const doc = await PDFDocument.create();
+    const A4 = [595.28, 841.89], M = 28;
+    for (const f of files) {
+      if (isPdf(f)) {
+        const src = await PDFDocument.load(await f.arrayBuffer(), { ignoreEncryption: true });
+        (await doc.copyPages(src, src.getPageIndices())).forEach((p) => doc.addPage(p));
+      } else {
+        const img = await imageToJpeg(f);
+        const jpg = await doc.embedJpg(new Uint8Array(await img.blob.arrayBuffer()));
+        const landscape = img.w > img.h * 1.15;
+        const [pw, ph] = landscape ? [A4[1], A4[0]] : A4;
+        const s = Math.min((pw - 2 * M) / img.w, (ph - 2 * M) / img.h);
+        const w = img.w * s, h = img.h * s;
+        doc.addPage([pw, ph]).drawImage(jpg, { x: (pw - w) / 2, y: ph - M - h, width: w, height: h });
+      }
+    }
+    return await doc.save();
+  }
+
+  // ======================= PACK =======================
+  let items = [];   // { id, fund, vendor, item, kind, amount, date, receiptNo, files, error, note, fromAI }
+  let budget = null, budgetText = "";
+  let nextId = 1, pageTarget = null;
+
+  for (const k of ["myName", "myMatric", "fcName", "fcMatric"]) {
+    const v = store.get("cp_" + k); if (v) $(k).value = v;
+    $(k).addEventListener("input", () => { store.set("cp_" + k, $(k).value); renderEmail(); });
+  }
+  const eventName = () => clean($("event").value) || "Event";
+
+  function baseName(it) {
+    const v = clean(it.vendor) || "Vendor";
+    const d = clean(it.item);
+    return `${v}${d ? ` (${d})` : ""} ${it.kind} - $${money(it.amount) || "0.00"}`;
+  }
+  function plan(list) {
+    const seen = {};
+    return list.map((it) => {
+      let n = baseName(it), key = it.fund + "/" + n.toLowerCase(), i = 2;
+      while (seen[key]) { n = `${baseName(it)} (${i++})`; key = it.fund + "/" + n.toLowerCase(); }
+      seen[key] = true;
+      return { it, path: `${it.fund}/${n}.pdf`, name: n + ".pdf" };
+    });
+  }
+  const shown = () => (items.length ? items : EXAMPLES.map((e, i) => ({ ...e, id: -i - 1, files: [], example: true })));
+
+  function renderItems() {
+    const box = $("items");
+    box.innerHTML = "";
+    const list = shown();
+    const names = plan(list);
+    list.forEach((it, idx) => {
+      const el = document.createElement("div");
+      el.className = "item" + (it.example ? " example" : "");
+      const thumbs = document.createElement("div");
+      thumbs.className = "thumbs";
+      if (it.example) thumbs.innerHTML = `<div class="thumb">${it.kind === "Receipt" ? "RCPT" : "PAID"}</div>`;
+      else it.files.slice(0, 3).forEach((f) => {
+        if (isPdf(f)) { const d = document.createElement("div"); d.className = "thumb"; d.textContent = "PDF"; thumbs.append(d); }
+        else { const img = document.createElement("img"); img.className = "thumb"; img.alt = f.name; img.src = thumbUrl(f); thumbs.append(img); }
+      });
+      if (!it.example && it.files.length > 3) { const d = document.createElement("div"); d.className = "thumb"; d.textContent = `+${it.files.length - 3}`; thumbs.append(d); }
+      const uid = it.example ? "ex" + idx : it.id;
+      const fields = document.createElement("div");
+      fields.className = "fields";
+      fields.innerHTML = `
+        <label for="fund-${uid}">Fund<select id="fund-${uid}">${FUNDS.map((x) => `<option${x === it.fund ? " selected" : ""}>${x}</option>`).join("")}</select></label>
+        <label for="vendor-${uid}">Vendor<input type="text" id="vendor-${uid}" value="${esc(it.vendor)}" placeholder="Wingstop"></label>
+        <label for="item-${uid}">What was bought<input type="text" id="item-${uid}" value="${esc(it.item)}" placeholder="Group Dinner"></label>
+        <label for="kind-${uid}">Document<select id="kind-${uid}">${KINDS.map((x) => `<option${x === it.kind ? " selected" : ""}>${x}</option>`).join("")}</select></label>
+        <label for="amt-${uid}">Amount ($)<input type="number" id="amt-${uid}" min="0" step="0.01" inputmode="decimal" value="${esc(it.amount)}" placeholder="0.00"></label>`;
+      const foot = document.createElement("div");
+      foot.className = "item-foot";
+      if (it.example) {
+        foot.innerHTML = `<span class="tag ex">Example</span><span class="name">${esc(names[idx].name)}</span><span>Disappears when you add your first file.</span>`;
+        fields.querySelectorAll("input,select").forEach((c) => (c.disabled = true));
+      } else {
+        const meta = [it.date && `dated ${esc(it.date)}`, it.receiptNo && `no. ${esc(it.receiptNo)}`].filter(Boolean).join(", ");
+        foot.innerHTML = `${it.fromAI ? '<span class="tag ai">AI</span>' : ""}<span class="name">${esc(names[idx].name)}</span><span>${it.files.length} file${it.files.length === 1 ? "" : "s"}${meta ? " · " + meta : ""}</span>`;
+        const mk = (label, fn, title) => { const b = document.createElement("button"); b.type = "button"; b.className = "link"; b.textContent = label; if (title) b.title = title; b.onclick = fn; foot.append(b); };
+        mk("Add page", () => { pageTarget = it; $("pageInput").click(); });
+        const i = items.indexOf(it);
+        if (i > 0) mk("Merge into previous", () => { const prev = items[i - 1]; prev.files.push(...it.files); if (!money(prev.amount)) prev.amount = it.amount; items.splice(i, 1); renderAll(); }, "Use when this is another page of the document above");
+        if (i > 0) mk("Move up", () => { [items[i - 1], items[i]] = [items[i], items[i - 1]]; renderAll(); });
+        mk("Remove", () => { items = items.filter((x) => x !== it); renderAll(); });
+        const bind = (sel, key) => { const c = fields.querySelector(sel); c.addEventListener("input", () => { it[key] = c.value; renderSide(); foot.querySelector(".name").textContent = plan(items).find((x) => x.it === it).name; }); };
+        bind(`#fund-${uid}`, "fund"); bind(`#vendor-${uid}`, "vendor"); bind(`#item-${uid}`, "item"); bind(`#kind-${uid}`, "kind"); bind(`#amt-${uid}`, "amount");
+      }
+      el.append(thumbs, fields, foot);
+      if (it.error) { const e = document.createElement("div"); e.className = "item-note err"; e.textContent = it.error; el.append(e); }
+      else if (it.note) { const e = document.createElement("div"); e.className = "item-note ai"; e.textContent = it.note; el.append(e); }
+      box.append(el);
+    });
+  }
+
+  function renderSide() {
+    const list = shown();
+    const p = plan(list);
+    const ev = eventName();
+    const rows = [budget ? `${esc(ev)} - Budget.xlsx` : `<span class="dim">${esc(ev)} - Budget.xlsx  (not added)</span>`];
+    for (const fund of FUNDS) {
+      const inFund = p.filter((x) => x.it.fund === fund);
+      if (inFund.length) rows.push({ dir: `<span class="dir ${fund === "SAO" ? "sao" : "office"}">${fund}/</span>`, kids: inFund.map((x) => esc(x.name)) });
+    }
+    let t = `<span class="dir">${esc(ev)}.zip</span>\n`;
+    rows.forEach((r, i) => {
+      const last = i === rows.length - 1;
+      if (typeof r === "string") { t += `${last ? "└─" : "├─"} ${r}\n`; return; }
+      t += `${last ? "└─" : "├─"} ${r.dir}\n`;
+      r.kids.forEach((k, j) => { t += `${last ? "   " : "│  "}${j === r.kids.length - 1 ? "└─" : "├─"} ${k}\n`; });
+    });
+    $("tree").innerHTML = t;
+
+    const sum = (fund) => list.filter((x) => x.kind === "Receipt" && x.fund === fund).reduce((s, x) => s + (parseFloat(x.amount) || 0), 0);
+    const sS = sum("SAO"), sO = sum("SPMS Office");
+    $("totals").innerHTML = `<span class="k">SAO receipts</span><span class="v">$${sS.toFixed(2)}</span><span class="k">SPMS Office receipts</span><span class="v">$${sO.toFixed(2)}</span><span class="k"><strong>Total claim</strong></span><span class="v"><strong>$${(sS + sO).toFixed(2)}</strong></span>`;
+
+    const checks = [];
+    if (!items.length) checks.push(["warn", "Showing an example. Add your files to start."]);
+    else {
+      if (!clean($("event").value)) checks.push(["warn", "Give the event a name so the zip is named after it."]);
+      if (!budget) checks.push(["warn", "Add the event budget sheet. It goes in the zip this year."]);
+      const missing = items.filter((x) => !clean(x.vendor) || !money(x.amount));
+      if (missing.length) checks.push(["bad", `${missing.length} document${missing.length > 1 ? "s need" : " needs"} a vendor and amount${aiReady() ? '. Click "Fill in details with AI" or type them in.' : "."}`]);
+      const errs = items.filter((x) => x.error);
+      if (errs.length) checks.push(["bad", `${errs.length} file${errs.length > 1 ? "s" : ""} couldn't be read. Fix or remove ${errs.length > 1 ? "them" : "it"}.`]);
+      const groups = {};
+      for (const x of items) { if (!money(x.amount)) continue; const k = `${x.fund}|${money(x.amount)}`; (groups[k] ||= { r: 0, p: 0, x })[x.kind === "Receipt" ? "r" : "p"]++; }
+      for (const g of Object.values(groups).filter((g) => g.r !== g.p))
+        checks.push(["warn", `$${money(g.x.amount)} (${g.x.fund}) has ${g.r} receipt${g.r === 1 ? "" : "s"} and ${g.p} proof${g.p === 1 ? "" : "s"} of payment. Each purchase needs one of each.`]);
+      if (items.some((x) => x.kind === "Receipt" && parseFloat(x.amount) >= 1000)) checks.push(["warn", "A receipt is $1,000 or more. It needs SAO approval before purchase, and SPMS Office invoices that size are billed to NTU Shared Services."]);
+      if (!checks.some((c) => c[0] === "bad")) checks.push(["ok", "✓ Every file will be a PDF with the right name and folder."]);
+    }
+    $("checks").innerHTML = checks.map(([c, m]) => `<li class="${c}">${esc(m)}</li>`).join("");
+    $("packBtn").disabled = !items.length || checks.some((c) => c[0] === "bad");
+    $("readBtn").disabled = !aiReady() || !items.length;
+    renderEmail();
+  }
+
+  function renderEmail() {
+    const list = shown().filter((x) => x.kind === "Receipt");
+    const total = list.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0);
+    const parts = [...new Set(list.map((x) => (clean(x.item) ? `${clean(x.item).toLowerCase()} from ${clean(x.vendor)}` : clean(x.vendor))).filter(Boolean))];
+    const what = parts.length ? (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts.at(-1) : parts[0]) : "(insert items + vendors)";
+    const v = (id, ph) => $(id).value.trim() || ph;
+    $("emailText").value =
+`Dear ${v("fcName", "(insert FinCon name)")},
+
+I, ${v("myName", "(insert your name)")}, ${v("myMatric", "(insert matric no.)")} will allow the claimant ${v("fcName", "(insert FinCon name)")}, ${v("fcMatric", "(insert matric no.)")} to claim on my behalf the amount of $${total.toFixed(2)} for the purchase of ${what} on ${clean($("event").value) || "(insert event name)"}. If there is any dispute, I will settle myself and NTU is not liable to settle the dispute with the students involved.
+
+Attached: ${eventName()}.zip`;
+  }
+  function renderAll() { renderItems(); renderSide(); }
+
+  function addFiles(fileList) {
+    const files = [...fileList].filter((f) => isPdf(f) || (f.type || "").startsWith("image/") || /\.(heic|heif|jpe?g|png|webp)$/i.test(f.name));
+    if (!files.length) { setStatus("status", "Only photos, screenshots and PDFs can be added."); return; }
+    const prev = items.at(-1);
+    for (const f of files) {
+      const it = { id: nextId++, fund: prev?.fund || "SPMS Office", vendor: "", item: "", kind: "Receipt", amount: "", date: "", receiptNo: "", files: [f] };
+      items.push(it); precheck(it);
+    }
+    setStatus("status", ""); renderAll(); renderAI();
+  }
+  async function precheck(it) {
+    for (const f of it.files) {
+      if (isPdf(f)) continue;
+      try { const b = await decodeImage(f); b.close?.(); }
+      catch { it.error = `Can't read "${f.name}". It may be an iPhone HEIC photo; send it as a JPG or screenshot it, then add that instead.`; renderAll(); return; }
+    }
+    if (it.error) { it.error = null; renderAll(); }
+  }
+  function setStatus(id, msg, err) { const el = $(id); el.textContent = msg; el.classList.toggle("err", !!err); }
+
+  function wireDrop(drop, input, onFiles) {
+    drop.onclick = () => input.click();
+    drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } };
+    ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+    drop.addEventListener("drop", (e) => onFiles(e.dataTransfer.files));
+    input.onchange = (e) => { onFiles(e.target.files); e.target.value = ""; };
+  }
+  wireDrop($("drop"), $("fileInput"), addFiles);
+  $("pageInput").onchange = (e) => { if (pageTarget) { pageTarget.files.push(...e.target.files); precheck(pageTarget); renderAll(); } pageTarget = null; e.target.value = ""; };
+  $("budgetBtn").onclick = () => $("budgetInput").click();
+  $("budgetInput").onchange = async (e) => {
+    budget = e.target.files[0] || budget; e.target.value = "";
+    $("budgetName").textContent = budget ? budget.name : "Not added yet";
+    $("budgetBtn").textContent = budget ? "Replace" : "Add budget sheet";
+    budgetText = "";
+    if (budget && window.XLSX) {
+      try {
+        const wb = XLSX.read(new Uint8Array(await budget.arrayBuffer()), { type: "array" });
+        budgetText = wb.SheetNames.map((n) => XLSX.utils.sheet_to_csv(wb.Sheets[n], { blankrows: false }).split("\n").filter((l) => l.replace(/,/g, "").trim()).join("\n")).join("\n").slice(0, 6000);
+        if (!clean($("event").value)) {
+          const m = budgetText.match(/Event Name:?,+([^,\n]+)/i);
+          const fromName = budget.name.replace(/\.xlsx?$/i, "").replace(/\s*-\s*Budget$/i, "");
+          $("event").value = clean(fromName || (m && m[1]) || "");
+        }
+      } catch { budgetText = ""; }
+    }
+    renderAll();
+  };
+  $("event").addEventListener("input", renderAll);
+
+  const PACK_PROMPT = (n, budgetCsv, before) => `You are helping a student club treasurer at NTU (Singapore) file expense claims.
+You are given ${n} image(s), Image 1 to Image ${n}, in the order the user added them. Each is a photo, screenshot or PDF page of ONE of:
+- "receipt": a purchase receipt, tax invoice, or app order summary (Grab, Foodpanda, Shopee, etc.)
+- "proof": a proof of payment (bank app transfer screen, PayNow, card/NETS transaction, wallet payment)
+- a further page of the image just before it (the same receipt scrolled or continued).
+${before ? `The image before Image 1 (already processed) was: ${before}.` : ""}
+${budgetCsv ? `The event's budget sheet is below as CSV. Each spending line says whether it is claimed from "SAO" (subscription fee) or "SPMS Office". Use it to choose the fund and the budget line each purchase belongs to.\n--- BUDGET SHEET ---\n${budgetCsv}\n--- END ---` : "There is no budget sheet; leave fund and budget_line null."}
+
+For every image return one object, in order. Reply with only JSON in exactly this shape:
+{"images":[{"index":1,"kind":"receipt"|"proof","continues_previous":false,"vendor":"Wingstop","item":"Group Dinner","amount":338.75,"date":"29/09/2026","receipt_no":"2026100800689","invoice_no":null,"fund":"SPMS Office","budget_line":"Food"}]}
+
+Rules:
+- vendor: the shop or brand customers know (e.g. "Wingstop", "FairPrice", "Earle Swensen's", "Pandamart"), not the delivery app or bank. For a proof of payment, give the merchant that was paid as shown (e.g. "Grab", "Food Panda").
+- item: 1-3 words saying what was bought, in Title Case (e.g. "Ice Cream Cake", "Drinks", "Snacks", "Transport"). For a proof, copy the item of the receipt it pays for if you can tell.
+- amount: the final total actually paid, in SGD, as a number (after discounts, including fees). null if not visible on this image.
+- date: the purchase or payment date as DD/MM/YYYY. null if not shown.
+- receipt_no: the receipt number, order number or booking ID as printed. invoice_no: an invoice number only if one is printed separately. null when absent.
+- continues_previous: true only when this image is clearly another part of the same receipt as the image before it (same order, scrolled screenshot, no new header). Then still fill vendor and anything visible.
+- fund and budget_line: from the budget sheet only, else null.`;
+
+  $("readBtn").onclick = async () => {
+    const btn = $("readBtn"); btn.disabled = true;
+    try {
+      // Flatten: one AI image per file page (first and last page for PDFs).
+      const units = [];
+      for (const it of items) for (const f of it.files) units.push({ it, f });
+      const results = [];
+      const size = chunkSize();
+      let before = "";
+      for (let start = 0; start < units.length; start += size) {
+        const chunk = units.slice(start, start + size);
+        setStatus("readStatus", `Preparing images ${start + 1}–${start + chunk.length} of ${units.length}…`);
+        const imgs = [];
+        for (const u of chunk) { const b = await fileToAIImages(u.f); imgs.push(b.length > 1 ? b : b[0]); }
+        const flat = imgs.flat();
+        // When a PDF contributes two pages, tell the AI so it still answers one object per file.
+        const multi = imgs.map((b, i) => (Array.isArray(b) ? i + 1 : null)).filter(Boolean);
+        let prompt = PACK_PROMPT(chunk.length, budgetText, before);
+        if (multi.length) {
+          let k = 0; const map = imgs.map((b, i) => { const from = k + 1; k += Array.isArray(b) ? b.length : 1; return Array.isArray(b) ? `Image ${i + 1} = attached pictures ${from}-${k} (first and last page of one PDF)` : `Image ${i + 1} = attached picture ${from}`; });
+          prompt += "\n\nNote: " + map.join("; ") + ".";
+        }
+        setStatus("readStatus", `AI is reading ${start + 1}–${start + chunk.length} of ${units.length}…`);
+        const out = await askAI(prompt, flat);
+        const arr = Array.isArray(out?.images) ? out.images : Array.isArray(out) ? out : [];
+        chunk.forEach((u, i) => results.push({ u, r: arr.find((x) => Number(x.index) === i + 1) || arr[i] || null }));
+        const last = results.at(-1)?.r;
+        before = last ? `${last.kind || "?"} from ${last.vendor || "?"}${last.amount != null ? `, $${last.amount}` : ""}` : "";
+        if (start + size < units.length && ai.provider === "gemini") await sleep(1500);
+      }
+      // Apply results: one AI object per file. Merge continuation files into the item before.
+      const newItems = [];
+      for (const { u, r } of results) {
+        const isFirstFileOfItem = u.it.files[0] === u.f;
+        const target = isFirstFileOfItem ? null : newItems.at(-1);
+        if (target) { if (r && r.amount != null && !money(target.amount)) target.amount = money(r.amount); continue; }
+        if (r && r.continues_previous && newItems.length) {
+          const prev = newItems.at(-1);
+          prev.files.push(...u.it.files);
+          if (r.amount != null && (!money(prev.amount) || prev.kind === "Receipt")) prev.amount = money(r.amount) || prev.amount;
+          if (!prev.receiptNo && r.receipt_no) prev.receiptNo = String(r.receipt_no);
+          continue;
+        }
+        const it = u.it;
+        const nit = { ...it, files: [...it.files] };
+        if (r) {
+          nit.kind = r.kind === "proof" ? "Proof of Payment" : "Receipt";
+          if (r.vendor) nit.vendor = clean(r.vendor);
+          if (r.item) nit.item = clean(r.item);
+          if (r.amount != null && money(r.amount)) nit.amount = money(r.amount);
+          if (r.date) nit.date = String(r.date);
+          if (r.receipt_no) nit.receiptNo = String(r.receipt_no);
+          if (FUNDS.includes(r.fund)) nit.fund = r.fund;
+          nit.fromAI = true; nit.note = r.budget_line ? `Budget line: ${r.budget_line}` : "";
+        }
+        newItems.push(nit);
+      }
+      // Give each proof of payment the vendor, item and fund of the receipt with the same amount.
+      for (const pr of newItems.filter((x) => x.kind === "Proof of Payment")) {
+        const rc = newItems.find((x) => x.kind === "Receipt" && money(x.amount) && money(x.amount) === money(pr.amount));
+        if (rc) { pr.vendor = rc.vendor; pr.item = rc.item; pr.fund = rc.fund; pr.note = `Matched to the ${rc.vendor} receipt by amount.`; }
+      }
+      // Put each proof right after its receipt.
+      const ordered = [];
+      for (const x of newItems.filter((x) => x.kind === "Receipt")) {
+        ordered.push(x);
+        const pr = newItems.find((p) => p.kind === "Proof of Payment" && !ordered.includes(p) && money(p.amount) === money(x.amount));
+        if (pr) ordered.push(pr);
+      }
+      for (const x of newItems) if (!ordered.includes(x)) ordered.push(x);
+      items = ordered;
+      setStatus("readStatus", "Done. Check each line, then download the zip.");
+    } catch (e) {
+      console.error(e);
+      setStatus("readStatus", e instanceof AIError ? e.message : "Something went wrong: " + (e?.message || e), true);
+    } finally { renderAll(); renderAI(); }
+  };
+
+  async function saveFile(filename, blob) {
+    let downloads = null;
+    try { downloads = window.claude?.use ? await window.claude.use("downloads") : null; } catch {}
+    if (downloads) { await downloads.save({ filename, data: blob }); return; }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  }
+
+  $("packBtn").onclick = async () => {
+    const btn = $("packBtn"); btn.disabled = true;
+    try {
+      const ev = eventName();
+      const zip = new JSZip();
+      if (budget) zip.file(`${ev} - Budget.xlsx`, budget);
+      const p = plan(items);
+      for (let i = 0; i < p.length; i++) {
+        setStatus("status", `Converting ${i + 1} of ${p.length}: ${p[i].name}`);
+        zip.file(p[i].path, await buildPdf(p[i].it.files));
+      }
+      setStatus("status", "Zipping…");
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+      try { await saveFile(`${ev}.zip`, blob); setStatus("status", `Saved ${ev}.zip. Attach it to your claim email.`); }
+      catch (e) { setStatus("status", e?.code === "declined" ? "Download cancelled." : `Couldn't save the zip (${e?.code || "error"}). Try again.`, e?.code !== "declined"); }
+    } catch (e) {
+      console.error(e);
+      setStatus("status", "Something went wrong while building the PDFs: " + (e?.message || e) + ". Check that every file opens normally, then try again.", true);
+    } finally { btn.disabled = false; renderSide(); }
+  };
+
+  $("copyBtn").onclick = async () => {
+    const ta = $("emailText");
+    try { await navigator.clipboard.writeText(ta.value); $("copyStatus").textContent = "Copied."; }
+    catch { ta.focus(); ta.select(); $("copyStatus").textContent = "Selected. Press Ctrl+C or Cmd+C to copy."; }
+  };
+
+  // ======================= READ (FinCon) =======================
+  let zipFiles = [];   // { path, name, data: Uint8Array, isPdf, isProof, nameAmount }
+  let readRows = [];   // { file, vendor, amount, date, receipt_no, invoice_no, nameAmount, notes }
+
+  async function loadZip(fileList) {
+    const f = [...fileList][0]; if (!f) return;
+    setStatus("zipStatus", "Opening zip…");
+    try {
+      const z = await JSZip.loadAsync(await f.arrayBuffer());
+      zipFiles = [];
+      const entries = Object.values(z.files).filter((e) => !e.dir && !/(^|\/)(__MACOSX|\.)/.test(e.name) && /\.(pdf|jpe?g|png|webp)$/i.test(e.name));
+      for (const e of entries) {
+        const name = e.name.split("/").pop();
+        const m = name.match(/\$\s?([\d,]+(?:\.\d{1,2})?)/);
+        zipFiles.push({ path: e.name, name, data: await e.async("uint8array"), isPdf: /\.pdf$/i.test(name), isProof: /proof|payment|paynow|transfer/i.test(name), nameAmount: m ? money(m[1].replace(/,/g, "")) : "" });
+      }
+      const rec = zipFiles.filter((x) => !x.isProof).length;
+      readRows = [];
+      setStatus("zipStatus", `${f.name}: ${zipFiles.length} files, ${rec} receipt${rec === 1 ? "" : "s"}.${aiReady() ? " Click Read receipts with AI." : " Set up the AI reader first."}`);
+      renderTable(true);
+    } catch (e) {
+      zipFiles = []; setStatus("zipStatus", "Couldn't open that zip. Make sure it's a .zip file.", true);
+    }
+    renderAI();
+  }
+  wireDrop($("zipDrop"), $("zipInput"), loadZip);
+
+  const READ_PROMPT = (labels) => `You are reading receipts for a student club treasurer at NTU (Singapore) who must type them into the university claims system.
+The attached pictures belong to these files, in order:
+${labels.join("\n")}
+For EACH file return one object. Reply with only JSON in exactly this shape:
+{"receipts":[{"file":"<file name exactly as listed>","vendor":"Koufu AcaiGuru","amount":87.20,"date":"08/10/2026","receipt_no":"NTK1-000063499","invoice_no":"231612","notes":""}]}
+Rules:
+- amount: final total paid in SGD, as a number.
+- date: date on the receipt as DD/MM/YYYY (convert from any format; years like 26 mean 2026).
+- receipt_no: the number printed as Receipt No., Receipt, Order number, Booking ID or Transaction ID (prefer the one labelled receipt). Copy it exactly, character for character, including leading zeros and letters.
+- invoice_no: only a number explicitly labelled Invoice / Invoice Number / Tax Invoice No.; otherwise null.
+- If something is unreadable, use null and say so in notes. Never guess digits.`;
+
+  $("zipReadBtn").onclick = async () => {
+    const btn = $("zipReadBtn"); btn.disabled = true;
+    try {
+      const targets = zipFiles.filter((x) => $("incProofs").checked || !x.isProof);
+      if (!targets.length) { setStatus("zipStatus", "No receipts found in this zip. Tick \"Also read proofs of payment\" to read every file.", true); return; }
+      readRows = targets.map((t) => ({ file: t.name, nameAmount: t.nameAmount, pending: true }));
+      renderTable();
+      const size = chunkSize();
+      let i = 0;
+      while (i < targets.length) {
+        const group = [], imgs = [], labels = [];
+        while (i < targets.length) {
+          const t = targets[i];
+          setStatus("zipStatus", `Preparing ${t.name}…`);
+          const pics = t.isPdf ? (await pdfPagesToJpegs(t.data.slice(0), "ends", 1500)).blobs : [(await imageToJpeg(new Blob([t.data]), 1800)).blob];
+          if (group.length && imgs.length + pics.length > size) break;
+          const from = imgs.length + 1; imgs.push(...pics.slice(0, size));
+          labels.push(`- "${t.name}": picture${pics.length > 1 ? `s ${from}-${imgs.length}` : ` ${from}`}`);
+          group.push(t); i++;
+        }
+        setStatus("zipStatus", `AI is reading ${i - group.length + 1}–${i} of ${targets.length}…`);
+        const out = await askAI(READ_PROMPT(labels), imgs);
+        const arr = Array.isArray(out?.receipts) ? out.receipts : Array.isArray(out) ? out : [];
+        group.forEach((t, k) => {
+          const r = arr.find((x) => x.file === t.name) || arr[k] || {};
+          const row = readRows.find((x) => x.file === t.name && x.pending);
+          Object.assign(row, { vendor: r.vendor || "", amount: r.amount != null ? money(r.amount) : "", date: r.date || "", receipt_no: r.receipt_no ? String(r.receipt_no) : "", invoice_no: r.invoice_no ? String(r.invoice_no) : "", notes: r.notes || "", pending: false });
+        });
+        renderTable();
+        if (i < targets.length && ai.provider === "gemini") await sleep(1500);
+      }
+      setStatus("zipStatus", "Done. Click a value to copy it.");
+    } catch (e) {
+      console.error(e);
+      setStatus("zipStatus", e instanceof AIError ? e.message : "Something went wrong: " + (e?.message || e), true);
+      readRows.forEach((r) => { if (r.pending) { r.pending = false; r.notes = "Not read"; } });
+      renderTable();
+    } finally { renderAI(); }
+  };
+
+  const COLS = [["vendor", "Vendor"], ["amount", "Amount ($)"], ["receipt_no", "Receipt no."], ["date", "Date of receipt"], ["invoice_no", "Invoice no."]];
+  function renderTable(fresh) {
+    const t = $("resTable");
+    if (!readRows.length) {
+      t.innerHTML = fresh && zipFiles.length
+        ? `<tr><td class="small">Files found: ${zipFiles.map((z) => esc(z.name)).join(", ")}</td></tr>`
+        : `<tr><td class="small">Drop a claim zip above, then click Read receipts with AI. Results appear here, one row per receipt.</td></tr>`;
+      $("copyAllBtn").disabled = true; $("resTitle").textContent = "Receipts"; return;
+    }
+    $("resTitle").textContent = `Receipts (${readRows.length})`;
+    let h = `<thead><tr><th>File</th>${COLS.map(([, l]) => `<th>${l}</th>`).join("")}</tr></thead><tbody>`;
+    for (const r of readRows) {
+      h += `<tr><td class="file">${esc(r.file)}</td>`;
+      for (const [k] of COLS) {
+        if (r.pending) { h += `<td class="small">Reading…</td>`; continue; }
+        const v = r[k] || "";
+        let flag = "";
+        if (k === "amount" && r.nameAmount && v && r.nameAmount !== v) flag = `<span class="flag">File name says $${esc(r.nameAmount)}</span>`;
+        if (k === "invoice_no" && r.notes) flag = `<span class="flag">${esc(r.notes)}</span>`;
+        h += `<td>${v ? `<button type="button" class="cp" data-v="${esc(v)}">${esc(v)}</button>` : `<span class="cp empty">none</span>`}${flag}</td>`;
+      }
+      h += `</tr>`;
+    }
+    t.innerHTML = h + "</tbody>";
+    $("copyAllBtn").disabled = readRows.some((r) => r.pending);
+  }
+  async function copyText(txt) { try { await navigator.clipboard.writeText(txt); return true; } catch { return false; } }
+  $("resTable").addEventListener("click", async (e) => {
+    const b = e.target.closest(".cp[data-v]"); if (!b) return;
+    const ok = await copyText(b.dataset.v);
+    if (ok) { b.classList.add("done"); const old = b.textContent; b.textContent = "Copied"; setTimeout(() => { b.textContent = old; b.classList.remove("done"); }, 900); }
+    else { const r = document.createRange(); r.selectNodeContents(b); const s = getSelection(); s.removeAllRanges(); s.addRange(r); setStatus("zipStatus", "Selected. Press Ctrl+C or Cmd+C to copy."); }
+  });
+  $("copyAllBtn").onclick = async () => {
+    const tsv = [["File", ...COLS.map(([, l]) => l)].join("\t"), ...readRows.map((r) => [r.file, ...COLS.map(([k]) => r[k] || "")].join("\t"))].join("\n");
+    setStatus("zipStatus", (await copyText(tsv)) ? "Table copied. Paste it into Excel or Google Sheets." : "Couldn't copy here. Select the table and copy it instead.");
+  };
+
+  // ======================= tabs & start =======================
+  function showTab(which) {
+    const pack = which === "pack";
+    $("tabPack").setAttribute("aria-selected", pack); $("tabRead").setAttribute("aria-selected", !pack);
+    $("viewPack").hidden = !pack; $("viewRead").hidden = pack;
+    store.set("cp_tab", which);
+  }
+  $("tabPack").onclick = () => showTab("pack");
+  $("tabRead").onclick = () => showTab("read");
+  showTab(location.hash === "#fincon" ? "read" : store.get("cp_tab") || "pack");
+
+  renderAll();
+  renderTable();
+  initAI();
+})();
+</script>
+</body></html>
