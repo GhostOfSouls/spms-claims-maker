@@ -392,6 +392,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
   }
   function aiReady() {
     if (ai.provider === "builtin") return !!ai.sample;
+    if (ai.inClaude) return false; // keys can't reach outside services from inside Claude
     return !!$("apiKey").value.trim();
   }
   function renderAI() {
@@ -414,7 +415,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     const chip = $("aiChip");
     const ready = aiReady();
     chip.className = "chip" + (ready ? "" : " off");
-    chip.textContent = ready ? (builtin ? "Claude, built in" : p === "gemini" ? "Gemini" : "Claude API") : "Not set up";
+    chip.textContent = ready ? (builtin ? "Claude, built in" : p === "gemini" ? "Gemini" : "Claude API") : (ai.inClaude && !builtin ? "Keys don't work here" : "Not set up");
     $("readBtn").disabled = !ready || !items.length;
     $("zipReadBtn").disabled = !ready || !zipFiles.length;
   }
@@ -968,8 +969,9 @@ Rules:
       setStatus("zipStatus", "Done. Click a value to copy it.");
     } catch (e) {
       console.error(e);
-      setStatus("zipStatus", e instanceof AIError ? e.message : "Something went wrong: " + (e?.message || e), true);
-      readRows.forEach((r) => { if (r.pending) { r.pending = false; r.notes = "Not read"; } });
+      const why = e instanceof AIError ? e.message : "Something went wrong: " + (e?.message || e);
+      setStatus("zipStatus", why, true);
+      readRows.forEach((r) => { if (r.pending) { r.pending = false; r.notes = "Not read: " + why; } });
       renderTable();
     } finally { renderAI(); }
   };
