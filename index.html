@@ -372,6 +372,8 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
   const ai = { provider: "builtin", key: "", model: "", sample: null, maxImages: 0, inClaude: !!(window.claude && window.claude.use) };
 
   async function initAI() {
+    // Outside Claude (e.g. the GitHub Pages site) there is no built-in Claude, so only offer key-based options.
+    if (!ai.inClaude) $("provider").querySelector('option[value="builtin"]')?.remove();
     const saved = store.get("cp_provider");
     if (ai.inClaude) {
       try {
