@@ -355,7 +355,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     { fund: "SPMS Office", vendor: "Grab", item: "Transport", kind: "Receipt", amount: "265.00" },
     { fund: "SPMS Office", vendor: "Grab", item: "Transport", kind: "Proof of Payment", amount: "265.00" },
   ];
-  const DEFAULT_MODEL = { gemini: "gemini-2.5-flash", anthropic: "claude-haiku-5-5", builtin: "" };
+  const DEFAULT_MODEL = { gemini: "gemini-flash-latest", anthropic: "claude-haiku-5-5", builtin: "" };
 
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -387,6 +387,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     ai.key = store.get("cp_key_" + ai.provider) || "";
     $("remember").checked = !!ai.key;
     $("apiKey").value = ai.key;
+    if (store.get("cp_model_gemini") === "gemini-2.5-flash") store.del("cp_model_gemini");
     $("model").value = store.get("cp_model_" + ai.provider) || DEFAULT_MODEL[ai.provider];
     renderAI();
   }
@@ -461,6 +462,34 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     const key = $("apiKey").value.trim();
     if (!key) throw new AIError("Add your API key in AI reader first.");
     const model = $("model").value.trim() || DEFAULT_MODEL[p];
+    try { return await callKeyed(p, key, model, prompt, images); }
+    catch (e) {
+      // Google retires model names now and then. Find a current Flash model for this key and retry once.
+      if (!(e instanceof ModelGone) || p !== "gemini") throw e;
+      const next = await pickGeminiModel(key);
+      if (!next || next === model) throw new AIError(`Model "${model}" isn't available. Check the model name in AI reader.`);
+      $("model").value = next; store.set("cp_model_gemini", next);
+      return await callKeyed(p, key, next, prompt, images);
+    }
+  }
+  class ModelGone extends AIError {}
+  async function pickGeminiModel(key) {
+    let list = [];
+    try {
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000", { headers: { "x-goog-api-key": key } });
+      list = ((await r.json())?.models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace(/^models\//, ""));
+    } catch { return null; }
+    const ver = (n) => { const m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
+    const bad = /lite|image|tts|live|audio|embed|thinking|learnlm|gemma|robotics|computer/i;
+    const tiers = [
+      list.filter((n) => /flash/i.test(n) && !bad.test(n) && !/preview|exp/i.test(n)),
+      list.filter((n) => /flash/i.test(n) && !bad.test(n)),
+      list.filter((n) => /gemini/i.test(n) && !bad.test(n)),
+    ];
+    for (const t of tiers) if (t.length) return t.sort((a, b) => ver(b) - ver(a) || /latest/.test(b) - /latest/.test(a) || a.length - b.length)[0];
+    return null;
+  }
+  async function callKeyed(p, key, model, prompt, images) {
     let res;
     try {
       if (p === "gemini") {
@@ -489,7 +518,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
       const msg = body?.error?.message || res.statusText;
       if (res.status === 429) throw new AIError("The free limit for this minute is used up. Wait a minute, then click again.");
       if (res.status === 400 && /API key/i.test(msg) || res.status === 401 || res.status === 403) throw new AIError("The API key was rejected. Check it in AI reader.");
-      if (res.status === 404) throw new AIError(`Model "${model}" wasn't found. Change the model name in AI reader.`);
+      if (res.status === 404 || /not found|not supported|no longer available|deprecated/i.test(msg)) throw new ModelGone(`Model "${model}" wasn't found. Change the model name in AI reader.`);
       throw new AIError("The AI service returned an error: " + msg);
     }
     const text = p === "gemini"
