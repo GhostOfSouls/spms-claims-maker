@@ -225,8 +225,11 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
           <label class="f" for="provider">Use
             <select id="provider">
               <option value="builtin">Claude, built in (no key needed)</option>
-              <option value="gemini">Google Gemini, your own key (free tier)</option>
-              <option value="anthropic">Claude API, your own key</option>
+              <option value="gemini">Google Gemini (free key)</option>
+              <option value="openrouter">OpenRouter free models (free key)</option>
+              <option value="groq">Groq (free key)</option>
+              <option value="anthropic">Claude API (paid key)</option>
+              <option value="openai">OpenAI (paid key)</option>
             </select>
           </label>
           <label class="f" for="apiKey" id="keyWrap">API key
@@ -355,7 +358,18 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     { fund: "SPMS Office", vendor: "Grab", item: "Transport", kind: "Receipt", amount: "265.00" },
     { fund: "SPMS Office", vendor: "Grab", item: "Transport", kind: "Proof of Payment", amount: "265.00" },
   ];
-  const DEFAULT_MODEL = { gemini: "gemini-flash-latest", anthropic: "claude-haiku-5-5", builtin: "" };
+  // Key-based AI services. Every one can be called straight from the browser; the key never leaves it except to that service.
+  const PROVIDERS = {
+    gemini: { name: "Gemini", model: "gemini-flash-latest", batch: 10, free: true, keyUrl: "https://aistudio.google.com/apikey", keyHost: "aistudio.google.com/apikey",
+      how: 'sign in with Google, then "Create API key"' },
+    openrouter: { name: "OpenRouter", model: "", batch: 5, free: true, base: "https://openrouter.ai/api/v1", keyUrl: "https://openrouter.ai/keys", keyHost: "openrouter.ai/keys",
+      how: "sign up, then create a key. Leave Model empty and the page picks a free model that can read images" },
+    groq: { name: "Groq", model: "meta-llama/llama-4-scout-17b-16e-instruct", batch: 5, free: true, base: "https://api.groq.com/openai/v1", keyUrl: "https://console.groq.com/keys", keyHost: "console.groq.com/keys",
+      how: "sign up, then create an API key" },
+    anthropic: { name: "Claude API", model: "claude-haiku-5-5", batch: 10, keyUrl: "https://console.anthropic.com/settings/keys", keyHost: "console.anthropic.com" },
+    openai: { name: "OpenAI", model: "gpt-4o-mini", batch: 10, base: "https://api.openai.com/v1", keyUrl: "https://platform.openai.com/api-keys", keyHost: "platform.openai.com/api-keys" },
+  };
+  const DEFAULT_MODEL = Object.fromEntries([["builtin", ""], ...Object.entries(PROVIDERS).map(([k, v]) => [k, v.model])]);
 
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -406,17 +420,17 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
       help.innerHTML = ai.sample
         ? "Uses your own Claude account. The first time, Claude asks you to allow this page to send it images."
         : "Built-in Claude only works when this page is opened inside Claude. Pick Gemini to use a free key instead.";
-    } else if (p === "gemini") {
-      help.innerHTML = 'Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> (sign in with Google, then "Create API key"). The free tier has a per-minute limit; if it says the limit is reached, wait a minute and try again.'
-        + (ai.inClaude ? ' <strong>Keys only work in the standalone copy of this page, not inside Claude.</strong>' : "");
     } else {
-      help.innerHTML = 'Create a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. This is paid per use.'
-        + (ai.inClaude ? ' <strong>Keys only work in the standalone copy of this page, not inside Claude.</strong>' : "");
+      const P = PROVIDERS[p];
+      help.innerHTML = (P.free
+        ? `Free: get a key at <a href="${P.keyUrl}" target="_blank" rel="noopener">${P.keyHost}</a> (${P.how}). Free keys have usage limits; if one is busy or used up, the page retries and then you can switch to another free option above.`
+        : `Paid per use: create a key at <a href="${P.keyUrl}" target="_blank" rel="noopener">${P.keyHost}</a>.`)
+        + (ai.inClaude ? ' <strong>Keys only work on the website copy of this page, not inside Claude.</strong>' : "");
     }
     const chip = $("aiChip");
     const ready = aiReady();
     chip.className = "chip" + (ready ? "" : " off");
-    chip.textContent = ready ? (builtin ? "Claude, built in" : p === "gemini" ? "Gemini" : "Claude API") : (ai.inClaude && !builtin ? "Keys don't work here" : "Not set up");
+    chip.textContent = ready ? (builtin ? "Claude, built in" : PROVIDERS[p].name) : (ai.inClaude && !builtin ? "Keys don't work here" : "Not set up");
     $("readBtn").disabled = !ready || !items.length;
     $("zipReadBtn").disabled = !ready || !zipFiles.length;
   }
@@ -434,7 +448,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     if ($("remember").checked) store.set("cp_key_" + ai.provider, $("apiKey").value.trim()); else store.del("cp_key_" + ai.provider);
   });
 
-  function chunkSize() { return ai.provider === "builtin" ? Math.max(1, Math.min(ai.maxImages, 10)) : 10; }
+  function chunkSize() { return ai.provider === "builtin" ? Math.max(1, Math.min(ai.maxImages, 10)) : PROVIDERS[ai.provider].batch; }
 
   async function blobToB64(blob) {
     const buf = new Uint8Array(await blob.arrayBuffer());
@@ -461,34 +475,63 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     }
     const key = $("apiKey").value.trim();
     if (!key) throw new AIError("Add your API key in AI reader first.");
-    const model = $("model").value.trim() || DEFAULT_MODEL[p];
-    try { return await callKeyed(p, key, model, prompt, images); }
-    catch (e) {
-      // Google retires model names now and then. Find a current Flash model for this key and retry once.
-      if (!(e instanceof ModelGone) || p !== "gemini") throw e;
-      const next = await pickGeminiModel(key);
-      if (!next || next === model) throw new AIError(`Model "${model}" isn't available. Check the model name in AI reader.`);
-      $("model").value = next; store.set("cp_model_gemini", next);
-      return await callKeyed(p, key, next, prompt, images);
+    let model = $("model").value.trim() || DEFAULT_MODEL[p];
+    let others = null;              // other models to fall back on, fetched only when needed
+    const tried = new Set();
+    for (let round = 0; round < 4; round++) {
+      if (!model) { others ??= await listModels(p, key); model = others.find((m) => !tried.has(m)); if (!model) break; }
+      tried.add(model);
+      // A busy model gets two more tries with a pause; then the next model.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const out = await callKeyed(p, key, model, prompt, images);
+          if ($("model").value.trim() !== model && round > 0) { $("model").value = model; store.set("cp_model_" + p, model); }
+          return out;
+        } catch (e) {
+          if (e instanceof ModelBusy && attempt < 2) { setBusyNote(`${PROVIDERS[p].name} is busy, trying again…`); await sleep(attempt ? 8000 : 3000); continue; }
+          if (e instanceof ModelBusy || e instanceof ModelGone) break;
+          throw e;
+        }
+      }
+      others ??= await listModels(p, key);
+      model = others.find((m) => !tried.has(m)) || "";
+      if (!model) break;
+      setBusyNote(`Switching to ${model}…`);
     }
+    throw new AIError(`${PROVIDERS[p].name} is too busy right now (tried ${[...tried].join(", ")}). Wait a few minutes, or pick another free option in AI reader.`);
   }
   class ModelGone extends AIError {}
-  async function pickGeminiModel(key) {
-    let list = [];
+  class ModelBusy extends AIError {}
+  let busyNoteTarget = null;
+  function setBusyNote(msg) { if (busyNoteTarget) setStatus(busyNoteTarget, msg); }
+
+  // Models to fall back on, best first. Each service is asked what this key can use right now.
+  async function listModels(p, key) {
     try {
-      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000", { headers: { "x-goog-api-key": key } });
-      list = ((await r.json())?.models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace(/^models\//, ""));
-    } catch { return null; }
-    const ver = (n) => { const m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
-    const bad = /lite|image|tts|live|audio|embed|thinking|learnlm|gemma|robotics|computer/i;
-    const tiers = [
-      list.filter((n) => /flash/i.test(n) && !bad.test(n) && !/preview|exp/i.test(n)),
-      list.filter((n) => /flash/i.test(n) && !bad.test(n)),
-      list.filter((n) => /gemini/i.test(n) && !bad.test(n)),
-    ];
-    for (const t of tiers) if (t.length) return t.sort((a, b) => ver(b) - ver(a) || /latest/.test(b) - /latest/.test(a) || a.length - b.length)[0];
-    return null;
+      if (p === "gemini") {
+        const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000", { headers: { "x-goog-api-key": key } });
+        const list = ((await r.json())?.models || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => m.name.replace(/^models\//, ""));
+        const ver = (n) => { const m = n.match(/gemini-(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
+        const bad = /image|tts|live|audio|embed|thinking|learnlm|gemma|robotics|computer|nano|banana/i;
+        const ok = list.filter((n) => /gemini/i.test(n) && !bad.test(n));
+        const score = (n) => (/flash/i.test(n) ? 4 : 0) + (/lite/i.test(n) ? -1 : 0) + (/preview|exp/i.test(n) ? -2 : 0) + (/pro/i.test(n) ? -3 : 0);
+        return ok.sort((a, b) => score(b) - score(a) || ver(b) - ver(a) || a.length - b.length);
+      }
+      if (p === "openrouter") {
+        const r = await fetch("https://openrouter.ai/api/v1/models");
+        const list = ((await r.json())?.data || []).filter((m) => (m.architecture?.input_modalities || []).includes("image") && Number(m.pricing?.prompt) === 0 && Number(m.pricing?.completion) === 0);
+        const pref = (id) => (/gemini|qwen.*vl|llama-4|mistral-small|gemma-3/i.test(id) ? 1 : 0);
+        return list.sort((a, b) => pref(b.id) - pref(a.id) || (b.context_length || 0) - (a.context_length || 0)).map((m) => m.id);
+      }
+      if (p === "groq") {
+        const r = await fetch(PROVIDERS.groq.base + "/models", { headers: { authorization: "Bearer " + key } });
+        const ids = ((await r.json())?.data || []).map((m) => m.id);
+        return ids.filter((id) => /llama-4|vision|scout|maverick/i.test(id)).sort((a, b) => /scout/.test(b) - /scout/.test(a));
+      }
+    } catch {}
+    return [];
   }
+
   async function callKeyed(p, key, model, prompt, images) {
     let res;
     try {
@@ -500,7 +543,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
           headers: { "content-type": "application/json", "x-goog-api-key": key },
           body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { responseMimeType: "application/json", temperature: 0 } }),
         });
-      } else {
+      } else if (p === "anthropic") {
         const content = [];
         for (const b of images) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: await blobToB64(b) } });
         content.push({ type: "text", text: prompt });
@@ -509,22 +552,38 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
           headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
           body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content }] }),
         });
+      } else {
+        // OpenAI-style chat API (OpenRouter, Groq, OpenAI).
+        const content = [{ type: "text", text: prompt }];
+        for (const b of images) content.push({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + (await blobToB64(b)) } });
+        const headers = { "content-type": "application/json", authorization: "Bearer " + key };
+        if (p === "openrouter") { headers["HTTP-Referer"] = location.origin.startsWith("http") ? location.origin : "https://ghostofsouls.github.io"; headers["X-Title"] = "SPMS Claim Packer"; }
+        res = await fetch(PROVIDERS[p].base + "/chat/completions", {
+          method: "POST", headers,
+          body: JSON.stringify({ model, temperature: 0, max_tokens: 4096, messages: [{ role: "user", content }] }),
+        });
       }
     } catch {
-      throw new AIError(ai.inClaude ? "This page can't reach outside services while it's open inside Claude. Use built-in Claude, or the standalone copy of this page for API keys." : "Couldn't reach the AI service. Check your internet connection and try again.");
+      throw new AIError(ai.inClaude ? "This page can't reach outside services while it's open inside Claude. Use built-in Claude, or the website copy of this page for API keys." : `Couldn't reach ${PROVIDERS[p].name}. Check your internet connection and try again.`);
     }
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = body?.error?.message || res.statusText;
-      if (res.status === 429) throw new AIError("The free limit for this minute is used up. Wait a minute, then click again.");
-      if (res.status === 400 && /API key/i.test(msg) || res.status === 401 || res.status === 403) throw new AIError("The API key was rejected. Check it in AI reader.");
-      if (res.status === 404 || /not found|not supported|no longer available|deprecated/i.test(msg)) throw new ModelGone(`Model "${model}" wasn't found. Change the model name in AI reader.`);
-      throw new AIError("The AI service returned an error: " + msg);
+      const err = body?.error;
+      const msg = (typeof err === "string" ? err : err?.message) || body?.message || res.statusText || "";
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && /api key|api_key|unauthori[sz]ed|invalid.*key/i.test(msg))) throw new AIError(`The ${PROVIDERS[p].name} key was rejected. Check it in AI reader.`);
+      if (res.status === 402 || /insufficient|credit|billing|quota exceeded for.*day|per-day|free-models-per-day/i.test(msg)) throw new AIError(`${PROVIDERS[p].name} says this key is out of free uses or credit (${msg}). Try another free option in AI reader.`);
+      if (res.status === 503 || res.status === 529 || res.status === 500 || res.status === 502 || /high demand|overloaded|unavailable|try again later/i.test(msg)) throw new ModelBusy(msg);
+      if (res.status === 429) throw new ModelBusy(msg);
+      if (res.status === 404 || /not found|not supported|no longer available|deprecated|does not exist|decommissioned|no endpoints/i.test(msg)) throw new ModelGone(`Model "${model}" isn't available.`);
+      if (/image|vision|multimodal/i.test(msg)) throw new ModelGone(`Model "${model}" can't read images.`);
+      throw new AIError(`${PROVIDERS[p].name} returned an error: ${msg}`);
     }
     const text = p === "gemini"
       ? (body?.candidates?.[0]?.content?.parts || []).map((x) => x.text || "").join("")
-      : (body?.content || []).filter((x) => x.type === "text").map((x) => x.text).join("");
-    if (!text) throw new AIError("The AI returned an empty answer. Try again.");
+      : p === "anthropic"
+        ? (body?.content || []).filter((x) => x.type === "text").map((x) => x.text).join("")
+        : (() => { const c = body?.choices?.[0]?.message?.content; return Array.isArray(c) ? c.map((x) => x.text || "").join("") : c || ""; })();
+    if (!text) throw new ModelBusy("empty answer");
     return parseLooseJSON(text);
   }
 
@@ -608,8 +667,15 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
 
   for (const k of ["myName", "myMatric", "fcName", "fcMatric"]) {
     const v = store.get("cp_" + k); if (v) $(k).value = v;
-    $(k).addEventListener("input", () => { store.set("cp_" + k, $(k).value); renderEmail(); });
+    $(k).addEventListener("input", () => { store.set("cp_" + k, $(k).value); renderSide(); });
   }
+  // The current FinCon's matric number fills itself in whenever the FinCon name is theirs.
+  const FINCON = { name: "darius toh zheng ting", matric: "U2440665H" };
+  function fillFinconMatric() {
+    if ($("fcName").value.trim().toLowerCase().replace(/\s+/g, " ") === FINCON.name && !$("fcMatric").value.trim()) $("fcMatric").value = FINCON.matric;
+  }
+  $("fcName").addEventListener("input", () => { fillFinconMatric(); renderEmail(); });
+  fillFinconMatric();
   const eventName = () => clean($("event").value) || "Event";
 
   function baseName(it) {
@@ -705,10 +771,12 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     const checks = [];
     if (!items.length) checks.push(["warn", "Showing an example. Add your files to start."]);
     else {
-      if (!clean($("event").value)) checks.push(["warn", "Give the event a name so the zip is named after it."]);
-      if (!budget) checks.push(["warn", "Add the event budget sheet. It goes in the zip this year."]);
-      const missing = items.filter((x) => !clean(x.vendor) || !money(x.amount));
-      if (missing.length) checks.push(["bad", `${missing.length} document${missing.length > 1 ? "s need" : " needs"} a vendor and amount${aiReady() ? '. Click "Fill in details with AI" or type them in.' : "."}`]);
+      if (!clean($("event").value)) checks.push(["bad", "Fill in the event name."]);
+      if (!budget) checks.push(["bad", "Add the event budget sheet. It goes in the zip this year."]);
+      const missing = items.filter((x) => !clean(x.vendor) || !clean(x.item) || !money(x.amount) || parseFloat(x.amount) <= 0);
+      if (missing.length) checks.push(["bad", `${missing.length} document${missing.length > 1 ? "s need" : " needs"} a vendor, what was bought and an amount${aiReady() ? '. Click "Fill in with AI" or type them in.' : "."}`]);
+      const who = [!$("myName").value.trim() && "your name", !$("myMatric").value.trim() && "your matric no."].filter(Boolean);
+      if (who.length) checks.push(["bad", `Fill in ${who.join(" and ")} under Claim email.`]);
       const errs = items.filter((x) => x.error);
       if (errs.length) checks.push(["bad", `${errs.length} file${errs.length > 1 ? "s" : ""} couldn't be read. Fix or remove ${errs.length > 1 ? "them" : "it"}.`]);
       const groups = {};
@@ -730,10 +798,14 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     const parts = [...new Set(list.map((x) => (clean(x.item) ? `${clean(x.item).toLowerCase()} from ${clean(x.vendor)}` : clean(x.vendor))).filter(Boolean))];
     const what = parts.length ? (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts.at(-1) : parts[0]) : "(insert items + vendors)";
     const v = (id, ph) => $(id).value.trim() || ph;
+    // The FinCon is filled in even when those boxes are empty; the claimant's own details stay as blanks to fill.
+    const fcName = $("fcName").value.trim() || "Darius Toh Zheng Ting";
+    const isDarius = fcName.toLowerCase().replace(/\s+/g, " ") === FINCON.name;
+    const fcMatric = $("fcMatric").value.trim() || (isDarius ? FINCON.matric : "(insert matric no.)");
     $("emailText").value =
-`Dear ${v("fcName", "(insert FinCon name)")},
+`Dear ${fcName},
 
-I, ${v("myName", "(insert your name)")}, ${v("myMatric", "(insert matric no.)")} will allow the claimant ${v("fcName", "(insert FinCon name)")}, ${v("fcMatric", "(insert matric no.)")} to claim on my behalf the amount of $${total.toFixed(2)} for the purchase of ${what} on ${clean($("event").value) || "(insert event name)"}. If there is any dispute, I will settle myself and NTU is not liable to settle the dispute with the students involved.
+I, ${v("myName", "(insert your name)")}, ${v("myMatric", "(insert matric no.)")} will allow the claimant ${fcName}, ${fcMatric} to claim on my behalf the amount of $${total.toFixed(2)} for the purchase of ${what} on ${clean($("event").value) || "(insert event name)"}. If there is any dispute, I will settle myself and NTU is not liable to settle the dispute with the students involved.
 
 Attached: ${eventName()}.zip`;
   }
@@ -812,6 +884,7 @@ Rules:
 
   $("readBtn").onclick = async () => {
     const btn = $("readBtn"); btn.disabled = true;
+    busyNoteTarget = "readStatus";
     try {
       // Flatten: one AI image per file page (first and last page for PDFs).
       const units = [];
@@ -838,7 +911,7 @@ Rules:
         chunk.forEach((u, i) => results.push({ u, r: arr.find((x) => Number(x.index) === i + 1) || arr[i] || null }));
         const last = results.at(-1)?.r;
         before = last ? `${last.kind || "?"} from ${last.vendor || "?"}${last.amount != null ? `, $${last.amount}` : ""}` : "";
-        if (start + size < units.length && ai.provider === "gemini") await sleep(1500);
+        if (start + size < units.length && ai.provider !== "builtin") await sleep(1500);
       }
       // Apply results: one AI object per file. Merge continuation files into the item before.
       const newItems = [];
@@ -966,6 +1039,7 @@ Rules:
 
   $("zipReadBtn").onclick = async () => {
     const btn = $("zipReadBtn"); btn.disabled = true;
+    busyNoteTarget = "zipStatus";
     try {
       const targets = zipFiles.filter((x) => $("incProofs").checked || !x.isProof);
       if (!targets.length) { setStatus("zipStatus", "No receipts found in this zip. Tick \"Also read proofs of payment\" to read every file.", true); return; }
@@ -993,7 +1067,7 @@ Rules:
           Object.assign(row, { vendor: r.vendor || "", amount: r.amount != null ? money(r.amount) : "", date: r.date || "", receipt_no: r.receipt_no ? String(r.receipt_no) : "", invoice_no: r.invoice_no ? String(r.invoice_no) : "", notes: r.notes || "", pending: false });
         });
         renderTable();
-        if (i < targets.length && ai.provider === "gemini") await sleep(1500);
+        if (i < targets.length && ai.provider !== "builtin") await sleep(1500);
       }
       setStatus("zipStatus", "Done. Click a value to copy it.");
     } catch (e) {
