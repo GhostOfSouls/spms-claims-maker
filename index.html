@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SPMS Claim Packer</title><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SPMS Claim Packer</title><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="description" content="Turns SPMS (NTU) claim receipts and payment proofs into named PDFs, sorts them into SAO and SPMS Office folders and zips them; also lists receipt numbers, dates and amounts from a claim zip for ICS. Works by hand or with optional AI."><link rel="help" href="llms.txt"></head><body>
 <title>SPMS Claim Packer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
@@ -213,9 +213,29 @@ tr.pv td { background: #f4f4f4; }
 .pvimgs { display: flex; gap: 8px; overflow-x: auto; }
 .pvimgs img { max-height: 520px; max-width: 100%; border: 3px solid var(--ink); background: #fff; }
 @media (prefers-reduced-motion: reduce) { .blink { animation: none; } }
+.sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>
 
 <div class="wrap">
+  <section class="sr-only" id="agentGuide" aria-label="How to use this page (for screen readers and AI agents)">
+    <h2>How to use this page</h2>
+    <p>SPMS Claim Packer runs entirely in the browser; nothing is uploaded except images sent to the AI provider you choose. AI is optional: every field can be typed by hand.</p>
+    <h3>Pack a claim (tab "W1 PACK A CLAIM")</h3>
+    <ol>
+      <li>Type the event name into "Event name".</li>
+      <li>Optional: set the file input "Budget sheet file (.xlsx)" to the event budget sheet.</li>
+      <li>Set the file input "Receipt and proof of payment files" to the photos, screenshots or PDFs. Each file becomes one document row.</li>
+      <li>For each document row (a group named "Document N"), fill Fund (SAO or SPMS Office), Vendor, What was bought, Document (Receipt or Proof of Payment) and Amount ($). Or set up the AI reader and click "Fill in with AI", then check the rows.</li>
+      <li>Open "Claim email" and fill "Your name" and "Your matric no.".</li>
+      <li>Read the checklist under "Your loot"; when nothing blocks it, click "Download zip". The zip holds the budget sheet and SAO/ and SPMS Office/ folders of PDFs named "Vendor (Item) Receipt - $Amount.pdf".</li>
+    </ol>
+    <h3>FinCon reader (tab "W2 FINCON READER")</h3>
+    <ol>
+      <li>Set the file input "Claim zip file" to a claim zip. Each receipt becomes an editable row.</li>
+      <li>Fill or check Vendor, Amount, Receipt no., Date of receipt (DD/MM/YYYY) and Invoice no. for each row, or click "Read with AI".</li>
+      <li>"+ Add row" adds a blank row, "Remove" deletes one, and "Copy table for Excel" copies everything as tab-separated text.</li>
+    </ol>
+  </section>
   <div class="hud" aria-label="Claim summary">
     <div><span>1P</span><span class="val">CLAIMANT</span></div>
     <div><span>WORLD</span><span class="val" id="hudEvent">-</span></div>
@@ -275,7 +295,7 @@ tr.pv td { background: #f4f4f4; }
               <button type="button" id="budgetBtn">Add budget sheet</button>
               <span id="budgetName" class="small">Not added yet</span>
             </div>
-            <input type="file" id="budgetInput" accept=".xlsx,.xls" hidden>
+            <input type="file" id="budgetInput" class="sr-only" accept=".xlsx,.xls" aria-label="Budget sheet file (.xlsx)" tabindex="-1">
           </div>
         </div>
 
@@ -284,8 +304,8 @@ tr.pv td { background: #f4f4f4; }
           <strong>INSERT RECEIPTS</strong>
           <span class="small">or click to choose. Photos, screenshots and PDFs. A receipt split over several screenshots is fine; keep them in order.</span>
         </div>
-        <input type="file" id="fileInput" accept="image/*,application/pdf,.pdf" multiple hidden>
-        <input type="file" id="pageInput" accept="image/*,application/pdf,.pdf" multiple hidden>
+        <input type="file" id="fileInput" class="sr-only" accept="image/*,application/pdf,.pdf" multiple aria-label="Receipt and proof of payment files" tabindex="-1">
+        <input type="file" id="pageInput" class="sr-only" accept="image/*,application/pdf,.pdf" multiple aria-label="Extra page for a document" tabindex="-1">
 
         <div class="bar">
           <button type="button" id="addFilesBtn">+ Add files</button>
@@ -335,7 +355,7 @@ tr.pv td { background: #f4f4f4; }
         <strong>INSERT CLAIM ZIP</strong>
         <span class="small">or click to choose. Every receipt inside is read for its amount, receipt number, date and invoice number.</span>
       </div>
-      <input type="file" id="zipInput" accept=".zip,application/zip" hidden>
+      <input type="file" id="zipInput" class="sr-only" accept=".zip,application/zip" aria-label="Claim zip file" tabindex="-1">
       <div class="bar">
         <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="incProofs"> Also list proofs of payment</label>
         <button type="button" class="ai" id="zipReadBtn" disabled>★ READ WITH AI</button>
@@ -715,6 +735,7 @@ tr.pv td { background: #f4f4f4; }
     list.forEach((it, idx) => {
       const el = document.createElement("div");
       el.className = "item" + (it.example ? " example" : "");
+      el.setAttribute("role", "group"); el.setAttribute("aria-label", `Document ${idx + 1}${it.example ? " (example)" : ""}`);
       const thumbs = document.createElement("div");
       thumbs.className = "thumbs";
       if (it.example) thumbs.innerHTML = `<div class="thumb">${it.kind === "Receipt" ? "RCPT" : "PAID"}</div>`;
@@ -1137,12 +1158,12 @@ Rules:
     $("resTitle").textContent = `Receipts (${readRows.length})`;
     let h = `<thead><tr><th>File</th>${COLS.map(([, l]) => `<th>${l}</th>`).join("")}<th></th></tr></thead><tbody>`;
     readRows.forEach((r, i) => {
-      h += `<tr><td class="file">${r.src ? `${esc(r.file)}${r.fromAI ? ' <span class="tag ai">AI</span>' : ""}<br><button type="button" class="link" data-act="view" data-i="${i}">${r.open ? "Hide" : "View"}</button>` : `<input class="cell" data-i="${i}" data-k="file" value="${esc(r.file)}" placeholder="Label (optional)" aria-label="Label">`}</td>`;
+      h += `<tr><td class="file">${r.src ? `${esc(r.file)}${r.fromAI ? ' <span class="tag ai">AI</span>' : ""}<br><button type="button" class="link" data-act="view" data-i="${i}">${r.open ? "Hide" : "View"}</button>` : `<input class="cell" data-i="${i}" data-k="file" value="${esc(r.file)}" placeholder="Label (optional)" aria-label="Label, row ${i + 1}">`}</td>`;
       for (const [k, l, ph] of COLS) {
         const v = r[k] || "";
-        h += `<td><div class="cellwrap"><input class="cell${k === "amount" ? " num" : ""}" data-i="${i}" data-k="${k}" value="${esc(v)}" placeholder="${r.pending ? "Reading…" : ph}" aria-label="${l}"${r.pending ? " disabled" : ""}${k === "amount" ? ' inputmode="decimal"' : ""}><button type="button" class="cpbtn" data-act="copy" data-i="${i}" data-k="${k}" title="Copy" aria-label="Copy ${l}">⧉</button></div><span class="flag" data-flag="${i}-${k}">${flagHtml(r, k)}</span></td>`;
+        h += `<td><div class="cellwrap"><input class="cell${k === "amount" ? " num" : ""}" data-i="${i}" data-k="${k}" value="${esc(v)}" placeholder="${r.pending ? "Reading…" : ph}" aria-label="${l}, row ${i + 1}"${r.pending ? " disabled" : ""}${k === "amount" ? ' inputmode="decimal"' : ""}><button type="button" class="cpbtn" data-act="copy" data-i="${i}" data-k="${k}" title="Copy" aria-label="Copy ${l}, row ${i + 1}">⧉</button></div><span class="flag" data-flag="${i}-${k}">${flagHtml(r, k)}</span></td>`;
       }
-      h += `<td><button type="button" class="link" data-act="del" data-i="${i}" aria-label="Remove row">Remove</button></td></tr>`;
+      h += `<td><button type="button" class="link" data-act="del" data-i="${i}" aria-label="Remove row ${i + 1}">Remove</button></td></tr>`;
       if (r.open) h += `<tr class="pv"><td colspan="${COLS.length + 2}"><div class="pvimgs" data-pv="${i}">Loading…</div></td></tr>`;
     });
     t.innerHTML = h + "</tbody>";

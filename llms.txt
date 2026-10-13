@@ -1,0 +1,27 @@
+# SPMS Claim Packer
+
+> A single-page browser tool for the NTU School of Physical and Mathematical Sciences (SPMS) club. It turns claim receipts and proofs of payment into named PDFs, sorts them into SAO and SPMS Office folders, adds the event budget sheet and downloads one zip for the claim email. A second tab lists the amount, receipt number, date and invoice number of each receipt in a claim zip, for typing into NTU's ICS claims system. Everything runs in the browser. AI reading is optional; every field can be typed by hand.
+
+## Using the page (people or agents)
+
+- Page: index.html. All controls have accessible names, and a screen-reader section titled "How to use this page" gives the same steps.
+- Files go in through file inputs named "Receipt and proof of payment files", "Budget sheet file (.xlsx)" and "Claim zip file". An automated browser can set them directly instead of using the drop zones.
+
+### Pack a claim (tab "W1 PACK A CLAIM")
+1. Fill "Event name".
+2. Optional: add the budget sheet (.xlsx). Without it the page still downloads, but reminds you to add it.
+3. Add the receipt and proof files. Each file becomes a group "Document N" with Fund (SAO / SPMS Office), Vendor, What was bought, Document (Receipt / Proof of Payment) and Amount ($).
+4. Fill those fields, or pick an AI provider under "Power-up: AI reader" and click "Fill in with AI".
+5. Open "Claim email" and fill "Your name" and "Your matric no.".
+6. When the checklist under "Your loot" has no blocking items, click "Download zip".
+
+Output zip: `(event) - Budget.xlsx`, `SAO/` and `SPMS Office/`, with files named `Vendor (Item) Receipt - $Amount.pdf` and `Vendor (Item) Proof of Payment - $Amount.pdf`.
+
+### FinCon reader (tab "W2 FINCON READER")
+1. Add a claim zip. Each receipt becomes an editable row (Vendor, Amount, Receipt no., Date of receipt as DD/MM/YYYY, Invoice no.).
+2. Fill the rows by hand (View shows the file) or click "Read with AI".
+3. "+ Add row" and "Remove" add and delete rows, and "Copy table for Excel" copies everything as tab-separated text.
+
+## Claim rules (SPMS AY2026/27)
+- One receipt plus one proof of payment per purchase, every file a PDF.
+- Email the zip with the authorisation template to spmsclub-financial@e.ntu.edu.sg within one week of the event.
