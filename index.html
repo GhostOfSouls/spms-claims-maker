@@ -772,7 +772,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     if (!items.length) checks.push(["warn", "Showing an example. Add your files to start."]);
     else {
       if (!clean($("event").value)) checks.push(["bad", "Fill in the event name."]);
-      if (!budget) checks.push(["bad", "Add the event budget sheet. It goes in the zip this year."]);
+      if (!budget) checks.push(["warn", "No budget sheet added. You can still download, but remember to put the event budget sheet into the zip before you email it."]);
       const missing = items.filter((x) => !clean(x.vendor) || !clean(x.item) || !money(x.amount) || parseFloat(x.amount) <= 0);
       if (missing.length) checks.push(["bad", `${missing.length} document${missing.length > 1 ? "s need" : " needs"} a vendor, what was bought and an amount${aiReady() ? '. Click "Fill in with AI" or type them in.' : "."}`]);
       const who = [!$("myName").value.trim() && "your name", !$("myMatric").value.trim() && "your matric no."].filter(Boolean);
@@ -984,7 +984,7 @@ Rules:
       }
       setStatus("status", "Zipping…");
       const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
-      try { await saveFile(`${ev}.zip`, blob); setStatus("status", `Saved ${ev}.zip. Attach it to your claim email.`); }
+      try { await saveFile(`${ev}.zip`, blob); setStatus("status", budget ? `Saved ${ev}.zip. Attach it to your claim email.` : `Saved ${ev}.zip. Remember to add ${ev} - Budget.xlsx into the zip before you email it.`); }
       catch (e) { setStatus("status", e?.code === "declined" ? "Download cancelled." : `Couldn't save the zip (${e?.code || "error"}). Try again.`, e?.code !== "declined"); }
     } catch (e) {
       console.error(e);
