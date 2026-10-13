@@ -201,6 +201,17 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
 .cp.done { background: var(--pipe); color: #fcfcfc; }
 .cp.empty { color: var(--muted); font-style: normal; box-shadow: none; border-style: dashed; cursor: default; }
 .flag { display: block; font-size: 17px; color: var(--warn-ink); margin-top: 3px; }
+.flag:empty { display: none; }
+.cellwrap { display: flex; gap: 4px; align-items: stretch; }
+input.cell { font-family: var(--body); font-size: 20px; min-width: 7em; width: 100%; padding: 2px 6px; border: 3px solid var(--ink); background: #fff; color: var(--ink); }
+input.cell.num { min-width: 5em; }
+input.cell[data-k="receipt_no"] { min-width: 12em; }
+input.cell:disabled { background: #eee; }
+.cpbtn { font-size: 16px; padding: 0 8px; min-width: 0; }
+.cpbtn.done { background: var(--pipe); color: #fcfcfc; }
+tr.pv td { background: #f4f4f4; }
+.pvimgs { display: flex; gap: 8px; overflow-x: auto; }
+.pvimgs img { max-height: 520px; max-width: 100%; border: 3px solid var(--ink); background: #fff; }
 @media (prefers-reduced-motion: reduce) { .blink { animation: none; } }
 </style>
 
@@ -277,9 +288,11 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
         <input type="file" id="pageInput" accept="image/*,application/pdf,.pdf" multiple hidden>
 
         <div class="bar">
+          <button type="button" id="addFilesBtn">+ Add files</button>
           <button type="button" class="ai" id="readBtn" disabled>★ FILL IN WITH AI</button>
           <span class="status" id="readStatus" role="status"></span>
         </div>
+        <p class="small" style="margin:0">AI is optional. You can type the vendor, item and amount into each row yourself, and fix anything the AI fills in.</p>
 
         <div class="items" id="items"></div>
       </div>
@@ -324,7 +337,7 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
       </div>
       <input type="file" id="zipInput" accept=".zip,application/zip" hidden>
       <div class="bar">
-        <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="incProofs"> Also read proofs of payment</label>
+        <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="incProofs"> Also list proofs of payment</label>
         <button type="button" class="ai" id="zipReadBtn" disabled>★ READ WITH AI</button>
         <span class="status" id="zipStatus" role="status"></span>
       </div>
@@ -332,9 +345,9 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
     <div class="panel">
       <div class="bar" style="justify-content:space-between">
         <h2 id="resTitle">Receipts</h2>
-        <button type="button" id="copyAllBtn" disabled>Copy table for Excel</button>
+        <div class="bar"><button type="button" id="addRowBtn">+ Add row</button><button type="button" id="copyAllBtn" disabled>Copy table for Excel</button></div>
       </div>
-      <p class="small" style="margin:0">Click any value to copy it, then paste it into ICS.</p>
+      <p class="small" style="margin:0">Type or fix any value, click ⧉ to copy it, then paste it into ICS. AI is optional.</p>
       <div class="tablewrap"><table class="res" id="resTable"></table></div>
     </div>
   </section>
@@ -840,6 +853,7 @@ Attached: ${eventName()}.zip`;
     input.onchange = (e) => { onFiles(e.target.files); e.target.value = ""; };
   }
   wireDrop($("drop"), $("fileInput"), addFiles);
+  $("addFilesBtn").onclick = () => $("fileInput").click();
   $("pageInput").onchange = (e) => { if (pageTarget) { pageTarget.files.push(...e.target.files); precheck(pageTarget); renderAll(); } pageTarget = null; e.target.value = ""; };
   $("budgetBtn").onclick = () => $("budgetInput").click();
   $("budgetInput").onchange = async (e) => {
@@ -999,14 +1013,25 @@ Rules:
   };
 
   // ======================= READ (FinCon) =======================
-  let zipFiles = [];   // { path, name, data: Uint8Array, isPdf, isProof, nameAmount }
-  let readRows = [];   // { file, vendor, amount, date, receipt_no, invoice_no, nameAmount, notes }
+  let zipFiles = [];   // { path, name, data: Uint8Array, isPdf, isProof, nameAmount, urls }
+  let readRows = [];   // { file, src, vendor, amount, date, receipt_no, invoice_no, nameAmount, notes, edited:Set, open, pending }
+  const isTarget = (z) => $("incProofs").checked || !z.isProof;
+  const guessVendor = (name) => name.replace(/\.[a-z0-9]+$/i, "").replace(/\s*-\s*\$\s?[\d,.]+\s*$/, "").replace(/\s*(proof of payment|receipt|invoice)\s*$/i, "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+  const rowFrom = (z) => ({ file: z.name, src: z, vendor: guessVendor(z.name), amount: z.nameAmount, date: "", receipt_no: "", invoice_no: "", nameAmount: z.nameAmount, notes: "", edited: new Set() });
+  function syncRows() {
+    // Keep typed-in rows; add rows for zip files that should be listed, drop untouched rows that shouldn't.
+    readRows = readRows.filter((r) => !r.src || isTarget(r.src) || r.edited.size);
+    zipFiles.filter(isTarget).forEach((z) => { if (!readRows.some((r) => r.src === z)) readRows.push(rowFrom(z)); });
+    const order = (r) => (r.src ? zipFiles.indexOf(r.src) : 1e9);
+    readRows.sort((a, b) => order(a) - order(b));
+  }
 
   async function loadZip(fileList) {
     const f = [...fileList][0]; if (!f) return;
     setStatus("zipStatus", "Opening zip…");
     try {
       const z = await JSZip.loadAsync(await f.arrayBuffer());
+      zipFiles.forEach((x) => x.urls?.forEach((u) => URL.revokeObjectURL(u)));
       zipFiles = [];
       const entries = Object.values(z.files).filter((e) => !e.dir && !/(^|\/)(__MACOSX|\.)/.test(e.name) && /\.(pdf|jpe?g|png|webp)$/i.test(e.name));
       for (const e of entries) {
@@ -1015,15 +1040,23 @@ Rules:
         zipFiles.push({ path: e.name, name, data: await e.async("uint8array"), isPdf: /\.pdf$/i.test(name), isProof: /proof|payment|paynow|transfer/i.test(name), nameAmount: m ? money(m[1].replace(/,/g, "")) : "" });
       }
       const rec = zipFiles.filter((x) => !x.isProof).length;
-      readRows = [];
-      setStatus("zipStatus", `${f.name}: ${zipFiles.length} files, ${rec} receipt${rec === 1 ? "" : "s"}.${aiReady() ? " Click Read receipts with AI." : " Set up the AI reader first."}`);
-      renderTable(true);
+      readRows = readRows.filter((r) => !r.src && r.edited.size);
+      syncRows();
+      setStatus("zipStatus", `${f.name}: ${zipFiles.length} files, ${rec} receipt${rec === 1 ? "" : "s"}. Type the details in below${aiReady() ? ", or click Read with AI to fill them" : ""}. Click View to see a file.`);
+      renderTable();
     } catch (e) {
       zipFiles = []; setStatus("zipStatus", "Couldn't open that zip. Make sure it's a .zip file.", true);
     }
     renderAI();
   }
   wireDrop($("zipDrop"), $("zipInput"), loadZip);
+
+  $("incProofs").addEventListener("change", () => { syncRows(); renderTable(); });
+  $("addRowBtn").onclick = () => {
+    readRows.push({ file: "", src: null, vendor: "", amount: "", date: "", receipt_no: "", invoice_no: "", nameAmount: "", notes: "", edited: new Set(["file"]) });
+    renderTable();
+    $("resTable").querySelector(`input[data-i="${readRows.length - 1}"][data-k="file"]`)?.focus();
+  };
 
   const READ_PROMPT = (labels) => `You are reading receipts for a student club treasurer at NTU (Singapore) who must type them into the university claims system.
 The attached pictures belong to these files, in order:
@@ -1040,77 +1073,102 @@ Rules:
   $("zipReadBtn").onclick = async () => {
     const btn = $("zipReadBtn"); btn.disabled = true;
     busyNoteTarget = "zipStatus";
+    let rows = [];
     try {
-      const targets = zipFiles.filter((x) => $("incProofs").checked || !x.isProof);
-      if (!targets.length) { setStatus("zipStatus", "No receipts found in this zip. Tick \"Also read proofs of payment\" to read every file.", true); return; }
-      readRows = targets.map((t) => ({ file: t.name, nameAmount: t.nameAmount, pending: true }));
+      syncRows();
+      rows = readRows.filter((r) => r.src);
+      if (!rows.length) { setStatus("zipStatus", "No receipts found in this zip. Tick \"Also read proofs of payment\" to read every file.", true); return; }
+      rows.forEach((r) => (r.pending = true));
       renderTable();
       const size = chunkSize();
       let i = 0;
-      while (i < targets.length) {
+      while (i < rows.length) {
         const group = [], imgs = [], labels = [];
-        while (i < targets.length) {
-          const t = targets[i];
+        while (i < rows.length) {
+          const t = rows[i].src;
           setStatus("zipStatus", `Preparing ${t.name}…`);
           const pics = t.isPdf ? (await pdfPagesToJpegs(t.data.slice(0), "ends", 1500)).blobs : [(await imageToJpeg(new Blob([t.data]), 1800)).blob];
           if (group.length && imgs.length + pics.length > size) break;
           const from = imgs.length + 1; imgs.push(...pics.slice(0, size));
           labels.push(`- "${t.name}": picture${pics.length > 1 ? `s ${from}-${imgs.length}` : ` ${from}`}`);
-          group.push(t); i++;
+          group.push(rows[i]); i++;
         }
-        setStatus("zipStatus", `AI is reading ${i - group.length + 1}–${i} of ${targets.length}…`);
+        setStatus("zipStatus", `AI is reading ${i - group.length + 1}–${i} of ${rows.length}…`);
         const out = await askAI(READ_PROMPT(labels), imgs);
         const arr = Array.isArray(out?.receipts) ? out.receipts : Array.isArray(out) ? out : [];
-        group.forEach((t, k) => {
-          const r = arr.find((x) => x.file === t.name) || arr[k] || {};
-          const row = readRows.find((x) => x.file === t.name && x.pending);
-          Object.assign(row, { vendor: r.vendor || "", amount: r.amount != null ? money(r.amount) : "", date: r.date || "", receipt_no: r.receipt_no ? String(r.receipt_no) : "", invoice_no: r.invoice_no ? String(r.invoice_no) : "", notes: r.notes || "", pending: false });
+        group.forEach((row, k) => {
+          const r = arr.find((x) => x.file === row.src.name) || arr[k] || {};
+          const got = { vendor: r.vendor || "", amount: r.amount != null ? money(r.amount) : "", date: r.date || "", receipt_no: r.receipt_no ? String(r.receipt_no) : "", invoice_no: r.invoice_no ? String(r.invoice_no) : "" };
+          // Never overwrite something the person typed themselves.
+          for (const [key, v] of Object.entries(got)) if (!row.edited.has(key) && v) row[key] = v;
+          row.notes = r.notes || ""; row.fromAI = true; row.pending = false;
         });
         renderTable();
-        if (i < targets.length && ai.provider !== "builtin") await sleep(1500);
+        if (i < rows.length && ai.provider !== "builtin") await sleep(1500);
       }
-      setStatus("zipStatus", "Done. Click a value to copy it.");
+      setStatus("zipStatus", "Done. Check each value, fix anything wrong, then copy.");
     } catch (e) {
       console.error(e);
       const why = e instanceof AIError ? e.message : "Something went wrong: " + (e?.message || e);
-      setStatus("zipStatus", why, true);
-      readRows.forEach((r) => { if (r.pending) { r.pending = false; r.notes = "Not read: " + why; } });
+      setStatus("zipStatus", why + " You can still type the details in yourself.", true);
+      rows.forEach((r) => { if (r.pending) { r.pending = false; r.notes = "Not read: " + why; } });
       renderTable();
     } finally { renderAI(); }
   };
 
-  const COLS = [["vendor", "Vendor"], ["amount", "Amount ($)"], ["receipt_no", "Receipt no."], ["date", "Date of receipt"], ["invoice_no", "Invoice no."]];
-  function renderTable(fresh) {
+  const COLS = [["vendor", "Vendor", "Koufu"], ["amount", "Amount ($)", "0.00"], ["receipt_no", "Receipt no.", "—"], ["date", "Date of receipt", "DD/MM/YYYY"], ["invoice_no", "Invoice no.", "—"]];
+  const flagHtml = (r, k) => {
+    if (k === "amount" && r.nameAmount && r.amount && r.nameAmount !== money(r.amount)) return `File name says $${esc(r.nameAmount)}`;
+    if (k === "invoice_no" && r.notes) return esc(r.notes);
+    return "";
+  };
+  async function previewUrls(z) {
+    if (z.urls) return z.urls;
+    const blobs = z.isPdf ? (await pdfPagesToJpegs(z.data.slice(0), "all", 1000)).blobs : [new Blob([z.data], { type: /\.png$/i.test(z.name) ? "image/png" : /\.webp$/i.test(z.name) ? "image/webp" : "image/jpeg" })];
+    return (z.urls = blobs.map((b) => URL.createObjectURL(b)));
+  }
+  function renderTable() {
     const t = $("resTable");
+    $("copyAllBtn").disabled = !readRows.length || readRows.some((r) => r.pending);
     if (!readRows.length) {
-      t.innerHTML = fresh && zipFiles.length
-        ? `<tr><td class="small">Files found: ${zipFiles.map((z) => esc(z.name)).join(", ")}</td></tr>`
-        : `<tr><td class="small">Drop a claim zip above, then click Read receipts with AI. Results appear here, one row per receipt.</td></tr>`;
-      $("copyAllBtn").disabled = true; $("resTitle").textContent = "Receipts"; return;
+      t.innerHTML = `<tr><td class="small">Drop a claim zip above to list its receipts, or click + Add row to type one in. Reading with AI is optional.</td></tr>`;
+      $("resTitle").textContent = "Receipts"; return;
     }
     $("resTitle").textContent = `Receipts (${readRows.length})`;
-    let h = `<thead><tr><th>File</th>${COLS.map(([, l]) => `<th>${l}</th>`).join("")}</tr></thead><tbody>`;
-    for (const r of readRows) {
-      h += `<tr><td class="file">${esc(r.file)}</td>`;
-      for (const [k] of COLS) {
-        if (r.pending) { h += `<td class="small">Reading…</td>`; continue; }
+    let h = `<thead><tr><th>File</th>${COLS.map(([, l]) => `<th>${l}</th>`).join("")}<th></th></tr></thead><tbody>`;
+    readRows.forEach((r, i) => {
+      h += `<tr><td class="file">${r.src ? `${esc(r.file)}${r.fromAI ? ' <span class="tag ai">AI</span>' : ""}<br><button type="button" class="link" data-act="view" data-i="${i}">${r.open ? "Hide" : "View"}</button>` : `<input class="cell" data-i="${i}" data-k="file" value="${esc(r.file)}" placeholder="Label (optional)" aria-label="Label">`}</td>`;
+      for (const [k, l, ph] of COLS) {
         const v = r[k] || "";
-        let flag = "";
-        if (k === "amount" && r.nameAmount && v && r.nameAmount !== v) flag = `<span class="flag">File name says $${esc(r.nameAmount)}</span>`;
-        if (k === "invoice_no" && r.notes) flag = `<span class="flag">${esc(r.notes)}</span>`;
-        h += `<td>${v ? `<button type="button" class="cp" data-v="${esc(v)}">${esc(v)}</button>` : `<span class="cp empty">none</span>`}${flag}</td>`;
+        h += `<td><div class="cellwrap"><input class="cell${k === "amount" ? " num" : ""}" data-i="${i}" data-k="${k}" value="${esc(v)}" placeholder="${r.pending ? "Reading…" : ph}" aria-label="${l}"${r.pending ? " disabled" : ""}${k === "amount" ? ' inputmode="decimal"' : ""}><button type="button" class="cpbtn" data-act="copy" data-i="${i}" data-k="${k}" title="Copy" aria-label="Copy ${l}">⧉</button></div><span class="flag" data-flag="${i}-${k}">${flagHtml(r, k)}</span></td>`;
       }
-      h += `</tr>`;
-    }
+      h += `<td><button type="button" class="link" data-act="del" data-i="${i}" aria-label="Remove row">Remove</button></td></tr>`;
+      if (r.open) h += `<tr class="pv"><td colspan="${COLS.length + 2}"><div class="pvimgs" data-pv="${i}">Loading…</div></td></tr>`;
+    });
     t.innerHTML = h + "</tbody>";
-    $("copyAllBtn").disabled = readRows.some((r) => r.pending);
+    readRows.forEach(async (r, i) => {
+      if (!r.open || !r.src) return;
+      const box = t.querySelector(`[data-pv="${i}"]`);
+      try { const urls = await previewUrls(r.src); if (box.isConnected) box.innerHTML = urls.map((u) => `<img src="${u}" alt="${esc(r.file)}">`).join(""); }
+      catch { if (box.isConnected) box.textContent = "Couldn't show this file."; }
+    });
   }
   async function copyText(txt) { try { await navigator.clipboard.writeText(txt); return true; } catch { return false; } }
+  $("resTable").addEventListener("input", (e) => {
+    const c = e.target.closest("input.cell"); if (!c) return;
+    const r = readRows[+c.dataset.i], k = c.dataset.k;
+    r[k] = c.value; r.edited.add(k);
+    const f = $("resTable").querySelector(`[data-flag="${c.dataset.i}-${k}"]`); if (f) f.innerHTML = flagHtml(r, k);
+  });
   $("resTable").addEventListener("click", async (e) => {
-    const b = e.target.closest(".cp[data-v]"); if (!b) return;
-    const ok = await copyText(b.dataset.v);
-    if (ok) { b.classList.add("done"); const old = b.textContent; b.textContent = "Copied"; setTimeout(() => { b.textContent = old; b.classList.remove("done"); }, 900); }
-    else { const r = document.createRange(); r.selectNodeContents(b); const s = getSelection(); s.removeAllRanges(); s.addRange(r); setStatus("zipStatus", "Selected. Press Ctrl+C or Cmd+C to copy."); }
+    const b = e.target.closest("button[data-act]"); if (!b) return;
+    const i = +b.dataset.i, r = readRows[i];
+    if (b.dataset.act === "del") { readRows.splice(i, 1); renderTable(); return; }
+    if (b.dataset.act === "view") { r.open = !r.open; renderTable(); return; }
+    const v = r[b.dataset.k] || "";
+    if (!v) return;
+    if (await copyText(v)) { b.classList.add("done"); b.textContent = "✓"; setTimeout(() => { b.textContent = "⧉"; b.classList.remove("done"); }, 900); }
+    else { const c = b.previousElementSibling; c.select(); setStatus("zipStatus", "Selected. Press Ctrl+C or Cmd+C to copy."); }
   });
   $("copyAllBtn").onclick = async () => {
     const tsv = [["File", ...COLS.map(([, l]) => l)].join("\t"), ...readRows.map((r) => [r.file, ...COLS.map(([k]) => r[k] || "")].join("\t"))].join("\n");
