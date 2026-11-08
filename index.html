@@ -195,7 +195,7 @@ details[open] > summary { margin-bottom: 14px; }
 table.res { border-collapse: collapse; width: 100%; font-size: 21px; }
 table.res th { text-align: left; font-family: var(--display); font-size: 9px; color: #fcfcfc; background: var(--ink); padding: 8px; white-space: nowrap; }
 table.res td { padding: 6px 8px; border-bottom: 3px solid #d8d8d8; vertical-align: top; }
-table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
+table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; min-width: 190px; }
 .cp { font-family: var(--body); font-size: 20px; letter-spacing: 0; background: var(--box-2); border: 3px solid var(--ink); padding: 2px 8px; cursor: pointer; white-space: nowrap; color: var(--ink); box-shadow: 2px 2px 0 var(--ink); }
 .cp:hover { background: #fff0b0; }
 .cp.done { background: var(--pipe); color: #fcfcfc; }
@@ -206,6 +206,8 @@ table.res td.file { font-size: 18px; color: var(--muted); max-width: 260px; }
 input.cell { font-family: var(--body); font-size: 20px; min-width: 7em; width: 100%; padding: 2px 6px; border: 3px solid var(--ink); background: #fff; color: var(--ink); }
 input.cell.num { min-width: 5em; }
 input.cell[data-k="receipt_no"] { min-width: 12em; }
+input.cell[data-k="desc"] { min-width: 20em; }
+input.cell[data-k="date"], input.cell[data-k="invoice_no"] { min-width: 6.5em; }
 input.cell:disabled { background: #eee; }
 .cpbtn { font-size: 16px; padding: 0 8px; min-width: 0; }
 .cpbtn.done { background: var(--pipe); color: #fcfcfc; }
@@ -361,6 +363,7 @@ tr.pv td { background: #f4f4f4; }
         <button type="button" class="ai" id="zipReadBtn" disabled>★ READ WITH AI</button>
         <span class="status" id="zipStatus" role="status"></span>
       </div>
+      <label class="f" for="finEvent">Event name (goes at the start of every description)<input type="text" id="finEvent" placeholder="e.g. Peritia Inferno" autocomplete="off"></label>
     </div>
     <div class="panel">
       <div class="bar" style="justify-content:space-between">
@@ -369,6 +372,17 @@ tr.pv td { background: #f4f4f4; }
       </div>
       <p class="small" style="margin:0">Type or fix any value, click ⧉ to copy it, then paste it into ICS. AI is optional.</p>
       <div class="tablewrap"><table class="res" id="resTable"></table></div>
+    </div>
+    <div class="panel" style="display:grid;gap:12px">
+      <h2>AUTHORISATION EMAIL</h2>
+      <p class="small" style="margin:0">Attach this in ICS when you claim on someone's behalf.</p>
+      <div class="small" id="authFound"></div>
+      <div class="row2">
+        <label class="f" for="authName">Claimant's name<input type="text" id="authName" autocomplete="off"></label>
+        <label class="f" for="authMatric">Claimant's matric no.<input type="text" id="authMatric" autocomplete="off"></label>
+      </div>
+      <textarea id="authText" readonly aria-label="Authorisation email text"></textarea>
+      <div class="bar"><button type="button" id="authCopy">Copy text</button><button type="button" id="authPdf">Download as PDF</button><span class="status" id="authStatus" role="status"></span></div>
     </div>
   </section>
 </div>
@@ -781,7 +795,7 @@ tr.pv td { background: #f4f4f4; }
     const list = shown();
     const p = plan(list);
     const ev = eventName();
-    const rows = [budget ? `${esc(ev)} - Budget.xlsx` : `<span class="dim">${esc(ev)} - Budget.xlsx  (not added)</span>`];
+    const rows = [budget ? `${esc(ev)} - Budget.xlsx` : `<span class="dim">${esc(ev)} - Budget.xlsx  (not added)</span>`, `${esc(ev)} - Authorisation Email.pdf`];
     for (const fund of FUNDS) {
       const inFund = p.filter((x) => x.it.fund === fund);
       if (inFund.length) rows.push({ dir: `<span class="dir ${fund === "SAO" ? "sao" : "office"}">${fund}/</span>`, kids: inFund.map((x) => esc(x.name)) });
@@ -830,18 +844,43 @@ tr.pv td { background: #f4f4f4; }
     const list = shown().filter((x) => x.kind === "Receipt");
     const total = list.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0);
     const parts = [...new Set(list.map((x) => (clean(x.item) ? `${clean(x.item).toLowerCase()} from ${clean(x.vendor)}` : clean(x.vendor))).filter(Boolean))];
-    const what = parts.length ? (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts.at(-1) : parts[0]) : "(insert items + vendors)";
+    const what = parts.length ? joinAnd(parts) : "(insert items + vendors)";
     const v = (id, ph) => $(id).value.trim() || ph;
     // The FinCon is filled in even when those boxes are empty; the claimant's own details stay as blanks to fill.
     const fcName = $("fcName").value.trim() || "Darius Toh Zheng Ting";
     const isDarius = fcName.toLowerCase().replace(/\s+/g, " ") === FINCON.name;
     const fcMatric = $("fcMatric").value.trim() || (isDarius ? FINCON.matric : "(insert matric no.)");
-    $("emailText").value =
-`Dear ${fcName},
+    $("emailText").value = authEmailText({ fcName, fcMatric, name: v("myName", "(insert your name)"), matric: v("myMatric", "(insert matric no.)"), total, what, event: clean($("event").value) || "(insert event name)" })
+      + `\n\nAttached: ${eventName()}.zip`;
+  }
+  const joinAnd = (parts) => (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts.at(-1) : parts[0] || "");
+  function authEmailText({ fcName = "Darius Toh Zheng Ting", fcMatric = FINCON.matric, name, matric, total, what, event }) {
+    return `Dear ${fcName},
 
-I, ${v("myName", "(insert your name)")}, ${v("myMatric", "(insert matric no.)")} will allow the claimant ${fcName}, ${fcMatric} to claim on my behalf the amount of $${total.toFixed(2)} for the purchase of ${what} on ${clean($("event").value) || "(insert event name)"}. If there is any dispute, I will settle myself and NTU is not liable to settle the dispute with the students involved.
-
-Attached: ${eventName()}.zip`;
+I, ${name}, ${matric} will allow the claimant ${fcName}, ${fcMatric} to claim on my behalf the amount of $${total.toFixed(2)} for the purchase of ${what} on ${event}. If there is any dispute, I will settle myself and NTU is not liable to settle the dispute with the students involved.`;
+  }
+  // A plain A4 PDF of the authorisation email, so it can sit in the zip and be attached in ICS.
+  async function authEmailPdf({ name, matric, event, body }) {
+    const { PDFDocument, StandardFonts } = PDFLib;
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const W = 595.28, H = 841.89, M = 60, size = 11, lh = 16;
+    const safe = (t) => String(t).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, "-").replace(/[^\n\x20-\x7e\xa0-\xff]/g, "?");
+    let page = doc.addPage([W, H]), y = H - M;
+    const line = (t, f = font, sz = size) => { if (y < M) { page = doc.addPage([W, H]); y = H - M; } page.drawText(t, { x: M, y, size: sz, font: f }); y -= lh; };
+    line("Authorisation to claim on my behalf", bold, 15); y -= 10;
+    line(`From: ${safe(name)} (${safe(matric)})`); line("To: spmsclub-financial@e.ntu.edu.sg"); line(`Event: ${safe(event)}`);
+    line(`Date: ${new Date().toLocaleDateString("en-SG", { day: "2-digit", month: "2-digit", year: "numeric" })}`); y -= lh;
+    for (const para of safe(body).split("\n")) {
+      if (!para.trim()) { y -= lh; continue; }
+      let cur = "";
+      for (const w of para.split(" ")) {
+        const t = cur ? cur + " " + w : w;
+        if (cur && font.widthOfTextAtSize(t, size) > W - 2 * M) { line(cur); cur = w; } else cur = t;
+      }
+      if (cur) line(cur);
+    }
+    return await doc.save();
   }
   function renderAll() { renderItems(); renderSide(); }
 
@@ -1012,6 +1051,8 @@ Rules:
       const ev = eventName();
       const zip = new JSZip();
       if (budget) zip.file(`${ev} - Budget.xlsx`, budget);
+      renderEmail();
+      zip.file(`${ev} - Authorisation Email.pdf`, await authEmailPdf({ name: $("myName").value.trim(), matric: $("myMatric").value.trim(), event: ev, body: $("emailText").value.replace(/\n\nAttached: .*$/, "") }));
       const p = plan(items);
       for (let i = 0; i < p.length; i++) {
         setStatus("status", `Converting ${i + 1} of ${p.length}: ${p[i].name}`);
@@ -1053,16 +1094,28 @@ Rules:
     try {
       const z = await JSZip.loadAsync(await f.arrayBuffer());
       zipFiles.forEach((x) => x.urls?.forEach((u) => URL.revokeObjectURL(u)));
-      zipFiles = [];
-      const entries = Object.values(z.files).filter((e) => !e.dir && !/(^|\/)(__MACOSX|\.)/.test(e.name) && /\.(pdf|jpe?g|png|webp)$/i.test(e.name));
+      zipFiles = []; zipAuth = null;
+      const all = Object.values(z.files).filter((e) => !e.dir && !/(^|\/)(__MACOSX|\.)/.test(e.name));
+      const entries = all.filter((e) => /\.(pdf|jpe?g|png|webp)$/i.test(e.name));
+      const base = (n) => n.split("/").pop();
+      const budgetEntry = all.find((e) => /\s-\sbudget\.xlsx?$/i.test(base(e.name)));
+      const authEntry = entries.find((e) => /authori[sz]ation|auth(\.|\s)?email/i.test(base(e.name)));
+      $("finEvent").value = budgetEntry ? base(budgetEntry.name).replace(/\s-\sbudget\.xlsx?$/i, "")
+        : authEntry && /\s-\sauthori/i.test(base(authEntry.name)) ? base(authEntry.name).replace(/\s-\sauthori.*$/i, "")
+        : f.name.replace(/\.zip$/i, "").replace(/^[0-9a-f]{8}-/i, "").replace(/[_]+/g, " ").replace(/\s*\b(claims?|receipts?)\b.*$/i, "").replace(/^the\s+/i, "").trim();
+      if (authEntry) {
+        zipAuth = { name: base(authEntry.name), data: await authEntry.async("uint8array"), isPdf: /\.pdf$/i.test(authEntry.name) };
+        await fillFromAuth(zipAuth);
+      }
       for (const e of entries) {
+        if (e === authEntry) continue;
         const name = e.name.split("/").pop();
         const m = name.match(/\$\s?([\d,]+(?:\.\d{1,2})?)/);
         zipFiles.push({ path: e.name, name, data: await e.async("uint8array"), isPdf: /\.pdf$/i.test(name), isProof: /proof|payment|paynow|transfer/i.test(name), nameAmount: m ? money(m[1].replace(/,/g, "")) : "" });
       }
       const rec = zipFiles.filter((x) => !x.isProof).length;
       readRows = readRows.filter((r) => !r.src && r.edited.size);
-      syncRows();
+      syncRows(); renderAuth();
       setStatus("zipStatus", `${f.name}: ${zipFiles.length} files, ${rec} receipt${rec === 1 ? "" : "s"}. Type the details in below${aiReady() ? ", or click Read with AI to fill them" : ""}. Click View to see a file.`);
       renderTable();
     } catch (e) {
@@ -1137,7 +1190,8 @@ Rules:
     } finally { renderAI(); }
   };
 
-  const COLS = [["vendor", "Vendor", "Koufu"], ["amount", "Amount ($)", "0.00"], ["receipt_no", "Receipt no.", "—"], ["date", "Date of receipt", "DD/MM/YYYY"], ["invoice_no", "Invoice no.", "—"]];
+  const descFor = (r) => (r.edited.has("desc") ? r.desc || "" : [clean($("finEvent").value), clean(r.vendor || ""), money(r.amount) ? "$" + money(r.amount) : ""].filter(Boolean).join(" "));
+  const COLS = [["desc", "Description", "Event Vendor $0.00"], ["vendor", "Vendor", "Koufu"], ["amount", "Amount ($)", "0.00"], ["receipt_no", "Receipt no.", "—"], ["date", "Date of receipt", "DD/MM/YYYY"], ["invoice_no", "Invoice no.", "—"]];
   const flagHtml = (r, k) => {
     if (k === "amount" && r.nameAmount && r.amount && r.nameAmount !== money(r.amount)) return `File name says $${esc(r.nameAmount)}`;
     if (k === "invoice_no" && r.notes) return esc(r.notes);
@@ -1153,20 +1207,21 @@ Rules:
     $("copyAllBtn").disabled = !readRows.length || readRows.some((r) => r.pending);
     if (!readRows.length) {
       t.innerHTML = `<tr><td class="small">Drop a claim zip above to list its receipts, or click + Add row to type one in. Reading with AI is optional.</td></tr>`;
-      $("resTitle").textContent = "Receipts"; return;
+      $("resTitle").textContent = "Receipts"; renderAuth(); return;
     }
     $("resTitle").textContent = `Receipts (${readRows.length})`;
     let h = `<thead><tr><th>File</th>${COLS.map(([, l]) => `<th>${l}</th>`).join("")}<th></th></tr></thead><tbody>`;
     readRows.forEach((r, i) => {
       h += `<tr><td class="file">${r.src ? `${esc(r.file)}${r.fromAI ? ' <span class="tag ai">AI</span>' : ""}<br><button type="button" class="link" data-act="view" data-i="${i}">${r.open ? "Hide" : "View"}</button>` : `<input class="cell" data-i="${i}" data-k="file" value="${esc(r.file)}" placeholder="Label (optional)" aria-label="Label, row ${i + 1}">`}</td>`;
       for (const [k, l, ph] of COLS) {
-        const v = r[k] || "";
+        const v = k === "desc" ? descFor(r) : r[k] || "";
         h += `<td><div class="cellwrap"><input class="cell${k === "amount" ? " num" : ""}" data-i="${i}" data-k="${k}" value="${esc(v)}" placeholder="${r.pending ? "Reading…" : ph}" aria-label="${l}, row ${i + 1}"${r.pending ? " disabled" : ""}${k === "amount" ? ' inputmode="decimal"' : ""}><button type="button" class="cpbtn" data-act="copy" data-i="${i}" data-k="${k}" title="Copy" aria-label="Copy ${l}, row ${i + 1}">⧉</button></div><span class="flag" data-flag="${i}-${k}">${flagHtml(r, k)}</span></td>`;
       }
       h += `<td><button type="button" class="link" data-act="del" data-i="${i}" aria-label="Remove row ${i + 1}">Remove</button></td></tr>`;
       if (r.open) h += `<tr class="pv"><td colspan="${COLS.length + 2}"><div class="pvimgs" data-pv="${i}">Loading…</div></td></tr>`;
     });
     t.innerHTML = h + "</tbody>";
+    renderAuth();
     readRows.forEach(async (r, i) => {
       if (!r.open || !r.src) return;
       const box = t.querySelector(`[data-pv="${i}"]`);
@@ -1179,6 +1234,8 @@ Rules:
     const c = e.target.closest("input.cell"); if (!c) return;
     const r = readRows[+c.dataset.i], k = c.dataset.k;
     r[k] = c.value; r.edited.add(k);
+    if (k !== "desc") refreshDescs();
+    if (k === "vendor" || k === "amount") renderAuth();
     const f = $("resTable").querySelector(`[data-flag="${c.dataset.i}-${k}"]`); if (f) f.innerHTML = flagHtml(r, k);
   });
   $("resTable").addEventListener("click", async (e) => {
@@ -1186,14 +1243,58 @@ Rules:
     const i = +b.dataset.i, r = readRows[i];
     if (b.dataset.act === "del") { readRows.splice(i, 1); renderTable(); return; }
     if (b.dataset.act === "view") { r.open = !r.open; renderTable(); return; }
-    const v = r[b.dataset.k] || "";
+    const v = b.dataset.k === "desc" ? descFor(r) : r[b.dataset.k] || "";
     if (!v) return;
     if (await copyText(v)) { b.classList.add("done"); b.textContent = "✓"; setTimeout(() => { b.textContent = "⧉"; b.classList.remove("done"); }, 900); }
     else { const c = b.previousElementSibling; c.select(); setStatus("zipStatus", "Selected. Press Ctrl+C or Cmd+C to copy."); }
   });
   $("copyAllBtn").onclick = async () => {
-    const tsv = [["File", ...COLS.map(([, l]) => l)].join("\t"), ...readRows.map((r) => [r.file, ...COLS.map(([k]) => r[k] || "")].join("\t"))].join("\n");
+    const tsv = [["File", ...COLS.map(([, l]) => l)].join("\t"), ...readRows.map((r) => [r.file, ...COLS.map(([k]) => (k === "desc" ? descFor(r) : r[k] || ""))].join("\t"))].join("\n");
     setStatus("zipStatus", (await copyText(tsv)) ? "Table copied. Paste it into Excel or Google Sheets." : "Couldn't copy here. Select the table and copy it instead.");
+  };
+
+  function refreshDescs() {
+    $("resTable").querySelectorAll('input.cell[data-k="desc"]').forEach((c) => { const r = readRows[+c.dataset.i]; if (r && !r.edited.has("desc")) c.value = descFor(r); });
+  }
+  $("finEvent").addEventListener("input", () => { refreshDescs(); renderAuth(); });
+
+  let zipAuth = null;   // { name, data, isPdf, urls } — an authorisation email found inside the zip
+  async function fillFromAuth(a) {
+    if (!a.isPdf) return;
+    try {
+      if (!setupPdfJs()) return;
+      const doc = await pdfjsLib.getDocument({ data: a.data.slice(0), isEvalSupported: false }).promise;
+      let text = "";
+      for (let n = 1; n <= Math.min(doc.numPages, 3); n++) text += (await (await doc.getPage(n)).getTextContent()).items.map((x) => x.str).join(" ") + " ";
+      const m = text.replace(/\s+/g, " ").match(/\bI,\s*([^,]{2,80}?),\s*([A-Z]\d{7}[A-Z])\b/i);
+      if (m && !/insert/i.test(m[1])) { $("authName").value = m[1].trim(); $("authMatric").value = m[2].toUpperCase(); }
+    } catch {}
+  }
+  function renderAuth() {
+    const rec = readRows.filter((r) => !r.src || !r.src.isProof);
+    const total = rec.reduce((t, r) => t + (parseFloat(r.amount) || 0), 0);
+    const what = joinAnd([...new Set(rec.map((r) => clean(r.vendor || "")).filter(Boolean))]) || "(insert items + vendors)";
+    $("authText").value = authEmailText({ name: $("authName").value.trim() || "(insert claimant's name)", matric: $("authMatric").value.trim() || "(insert matric no.)", total, what, event: clean($("finEvent").value) || "(insert event name)" });
+    const box = $("authFound");
+    if (zipAuth) {
+      box.innerHTML = `Found in the zip: <strong>${esc(zipAuth.name)}</strong>. <button type="button" class="link" id="authOrig">Download that file</button> to attach it as is, or use the copy below.`;
+      $("authOrig").onclick = async () => {
+        try { await saveFile(zipAuth.name, new Blob([zipAuth.data])); setStatus("authStatus", `Saved ${zipAuth.name}.`); }
+        catch (e) { setStatus("authStatus", e?.code === "declined" ? "Download cancelled." : `Couldn't save it (${e?.code || "error"}).`, e?.code !== "declined"); }
+      };
+    } else box.textContent = readRows.length ? "No authorisation email in this zip. Fill in the claimant below to make one." : "";
+  }
+  ["authName", "authMatric"].forEach((id) => $(id).addEventListener("input", renderAuth));
+  $("authCopy").onclick = async () => setStatus("authStatus", (await copyText($("authText").value)) ? "Copied." : "Couldn't copy here. Select the text and copy it instead.");
+  $("authPdf").onclick = async () => {
+    const name = $("authName").value.trim(), matric = $("authMatric").value.trim();
+    if (!name || !matric) { setStatus("authStatus", "Fill in the claimant's name and matric no. first.", true); return; }
+    const ev = clean($("finEvent").value) || "Event";
+    try {
+      const pdf = await authEmailPdf({ name, matric, event: ev, body: $("authText").value });
+      await saveFile(`${ev} - Authorisation Email.pdf`, new Blob([pdf], { type: "application/pdf" }));
+      setStatus("authStatus", `Saved ${ev} - Authorisation Email.pdf. Attach it in ICS.`);
+    } catch (e) { setStatus("authStatus", e?.code === "declined" ? "Download cancelled." : `Couldn't save it (${e?.code || e?.message || "error"}).`, e?.code !== "declined"); }
   };
 
   // ======================= tabs & start =======================
