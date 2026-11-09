@@ -375,14 +375,20 @@ tr.pv td { background: #f4f4f4; }
     </div>
     <div class="panel" style="display:grid;gap:12px">
       <h2>AUTHORISATION EMAIL</h2>
-      <p class="small" style="margin:0">Attach this in ICS when you claim on someone's behalf.</p>
+      <p class="small" style="margin:0">Finance needs the claimant's actual email when you claim on their behalf. Open it in your inbox, take a screenshot straight to the clipboard (<span class="mono">Win+Shift+S</span> on Windows, <span class="mono">Cmd+Ctrl+Shift+4</span> on Mac, or Copy on your phone) and press <span class="mono">Ctrl+V</span> / <span class="mono">Cmd+V</span> anywhere on this tab. No screenshot folder needed. A long email can take several screenshots.</p>
       <div class="small" id="authFound"></div>
-      <div class="row2">
-        <label class="f" for="authName">Claimant's name<input type="text" id="authName" autocomplete="off"></label>
-        <label class="f" for="authMatric">Claimant's matric no.<input type="text" id="authMatric" autocomplete="off"></label>
+      <div class="drop" id="authDrop" tabindex="0" role="button" aria-label="Add the authorisation email screenshot">
+        <strong>PASTE, DROP OR CLICK</strong>
+        <span class="small">Screenshot or PDF of the claimant's email</span>
       </div>
-      <textarea id="authText" readonly aria-label="Authorisation email text"></textarea>
-      <div class="bar"><button type="button" id="authCopy">Copy text</button><button type="button" id="authPdf">Download as PDF</button><span class="status" id="authStatus" role="status"></span></div>
+      <input type="file" id="authInput" class="sr-only" accept="image/*,application/pdf,.pdf" multiple aria-label="Authorisation email screenshot" tabindex="-1">
+      <div class="bar">
+        <button type="button" id="authCapture" hidden>Capture mail window</button>
+        <button type="button" class="primary" id="authPdf" disabled>Download as PDF</button>
+        <button type="button" class="link" id="authClear" hidden>Clear</button>
+        <span class="status" id="authStatus" role="status"></span>
+      </div>
+      <div class="pvimgs" id="authPreview"></div>
     </div>
   </section>
 </div>
@@ -795,7 +801,7 @@ tr.pv td { background: #f4f4f4; }
     const list = shown();
     const p = plan(list);
     const ev = eventName();
-    const rows = [budget ? `${esc(ev)} - Budget.xlsx` : `<span class="dim">${esc(ev)} - Budget.xlsx  (not added)</span>`, `${esc(ev)} - Authorisation Email.pdf`];
+    const rows = [budget ? `${esc(ev)} - Budget.xlsx` : `<span class="dim">${esc(ev)} - Budget.xlsx  (not added)</span>`];
     for (const fund of FUNDS) {
       const inFund = p.filter((x) => x.it.fund === fund);
       if (inFund.length) rows.push({ dir: `<span class="dir ${fund === "SAO" ? "sao" : "office"}">${fund}/</span>`, kids: inFund.map((x) => esc(x.name)) });
@@ -858,29 +864,6 @@ tr.pv td { background: #f4f4f4; }
     return `Dear ${fcName},
 
 I, ${name}, ${matric} will allow the claimant ${fcName}, ${fcMatric} to claim on my behalf the amount of $${total.toFixed(2)} for the purchase of ${what} on ${event}. If there is any dispute, I will settle myself and NTU is not liable to settle the dispute with the students involved.`;
-  }
-  // A plain A4 PDF of the authorisation email, so it can sit in the zip and be attached in ICS.
-  async function authEmailPdf({ name, matric, event, body }) {
-    const { PDFDocument, StandardFonts } = PDFLib;
-    const doc = await PDFDocument.create();
-    const font = await doc.embedFont(StandardFonts.Helvetica), bold = await doc.embedFont(StandardFonts.HelveticaBold);
-    const W = 595.28, H = 841.89, M = 60, size = 11, lh = 16;
-    const safe = (t) => String(t).replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, "-").replace(/[^\n\x20-\x7e\xa0-\xff]/g, "?");
-    let page = doc.addPage([W, H]), y = H - M;
-    const line = (t, f = font, sz = size) => { if (y < M) { page = doc.addPage([W, H]); y = H - M; } page.drawText(t, { x: M, y, size: sz, font: f }); y -= lh; };
-    line("Authorisation to claim on my behalf", bold, 15); y -= 10;
-    line(`From: ${safe(name)} (${safe(matric)})`); line("To: spmsclub-financial@e.ntu.edu.sg"); line(`Event: ${safe(event)}`);
-    line(`Date: ${new Date().toLocaleDateString("en-SG", { day: "2-digit", month: "2-digit", year: "numeric" })}`); y -= lh;
-    for (const para of safe(body).split("\n")) {
-      if (!para.trim()) { y -= lh; continue; }
-      let cur = "";
-      for (const w of para.split(" ")) {
-        const t = cur ? cur + " " + w : w;
-        if (cur && font.widthOfTextAtSize(t, size) > W - 2 * M) { line(cur); cur = w; } else cur = t;
-      }
-      if (cur) line(cur);
-    }
-    return await doc.save();
   }
   function renderAll() { renderItems(); renderSide(); }
 
@@ -1051,8 +1034,6 @@ Rules:
       const ev = eventName();
       const zip = new JSZip();
       if (budget) zip.file(`${ev} - Budget.xlsx`, budget);
-      renderEmail();
-      zip.file(`${ev} - Authorisation Email.pdf`, await authEmailPdf({ name: $("myName").value.trim(), matric: $("myMatric").value.trim(), event: ev, body: $("emailText").value.replace(/\n\nAttached: .*$/, "") }));
       const p = plan(items);
       for (let i = 0; i < p.length; i++) {
         setStatus("status", `Converting ${i + 1} of ${p.length}: ${p[i].name}`);
@@ -1104,8 +1085,11 @@ Rules:
         : authEntry && /\s-\sauthori/i.test(base(authEntry.name)) ? base(authEntry.name).replace(/\s-\sauthori.*$/i, "")
         : f.name.replace(/\.zip$/i, "").replace(/^[0-9a-f]{8}-/i, "").replace(/[_]+/g, " ").replace(/\s*\b(claims?|receipts?)\b.*$/i, "").replace(/^the\s+/i, "").trim();
       if (authEntry) {
-        zipAuth = { name: base(authEntry.name), data: await authEntry.async("uint8array"), isPdf: /\.pdf$/i.test(authEntry.name) };
-        await fillFromAuth(zipAuth);
+        zipAuth = { name: base(authEntry.name) };
+        const isP = /\.pdf$/i.test(authEntry.name);
+        authShots = [new File([await authEntry.async("uint8array")], zipAuth.name, { type: isP ? "application/pdf" : /\.png$/i.test(authEntry.name) ? "image/png" : "image/jpeg" })];
+      } else {
+        authShots = [];
       }
       for (const e of entries) {
         if (e === authEntry) continue;
@@ -1258,43 +1242,62 @@ Rules:
   }
   $("finEvent").addEventListener("input", () => { refreshDescs(); renderAuth(); });
 
-  let zipAuth = null;   // { name, data, isPdf, urls } — an authorisation email found inside the zip
-  async function fillFromAuth(a) {
-    if (!a.isPdf) return;
+  let zipAuth = null;   // { name } of an authorisation email found inside the zip
+  let authShots = [];   // Files (screenshots or PDFs) of the claimant's actual email
+  function addAuth(files) {
+    const ok = [...files].filter((f) => isPdf(f) || (f.type || "").startsWith("image/"));
+    if (!ok.length) { setStatus("authStatus", "Only screenshots, photos and PDFs work here.", true); return; }
+    zipAuth = null; authShots.push(...ok);
+    setStatus("authStatus", `${authShots.length} screenshot${authShots.length === 1 ? "" : "s"} added. Paste more if the email is longer, then download.`);
+    renderAuth();
+  }
+  async function renderAuth() {
+    $("authFound").innerHTML = zipAuth ? `Found in the zip: <strong>${esc(zipAuth.name)}</strong>.` : "";
+    $("authPdf").disabled = !authShots.length; $("authClear").hidden = !authShots.length;
+    const box = $("authPreview"), shots = authShots.slice();
+    if (box.dataset.n === String(shots.length) && box.dataset.k === (zipAuth?.name || "")) return;
+    box.dataset.n = shots.length; box.dataset.k = zipAuth?.name || "";
+    box.innerHTML = "";
+    for (const f of shots) {
+      if (isPdf(f)) { const d = document.createElement("div"); d.className = "thumb"; d.textContent = "PDF"; box.append(d); }
+      else { const img = document.createElement("img"); img.alt = "Authorisation email screenshot"; img.src = thumbUrl(f); box.append(img); }
+    }
+  }
+  wireDrop($("authDrop"), $("authInput"), addAuth);
+  // Paste a screenshot straight from the clipboard: on the FinCon tab it is the authorisation email, on the Pack tab a receipt.
+  document.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.items || [])].filter((x) => x.kind === "file").map((x) => x.getAsFile()).filter(Boolean)
+      .map((f, n) => new File([f], f.name && f.name !== "image.png" ? f.name : `Screenshot ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}${n ? "-" + n : ""}.png`, { type: f.type || "image/png" }));
+    if (!files.length) return;
+    e.preventDefault();
+    if ($("viewRead").hidden) addFiles(files); else addAuth(files);
+  });
+  $("authClear").onclick = () => { authShots = []; zipAuth = null; setStatus("authStatus", ""); renderAuth(); };
+  // Capture a window (e.g. Outlook) without saving a file. Browsers outside Claude only; not on phones.
+  if (navigator.mediaDevices?.getDisplayMedia && !ai.inClaude) $("authCapture").hidden = false;
+  $("authCapture").onclick = async () => {
+    let stream;
     try {
-      if (!setupPdfJs()) return;
-      const doc = await pdfjsLib.getDocument({ data: a.data.slice(0), isEvalSupported: false }).promise;
-      let text = "";
-      for (let n = 1; n <= Math.min(doc.numPages, 3); n++) text += (await (await doc.getPage(n)).getTextContent()).items.map((x) => x.str).join(" ") + " ";
-      const m = text.replace(/\s+/g, " ").match(/\bI,\s*([^,]{2,80}?),\s*([A-Z]\d{7}[A-Z])\b/i);
-      if (m && !/insert/i.test(m[1])) { $("authName").value = m[1].trim(); $("authMatric").value = m[2].toUpperCase(); }
-    } catch {}
-  }
-  function renderAuth() {
-    const rec = readRows.filter((r) => !r.src || !r.src.isProof);
-    const total = rec.reduce((t, r) => t + (parseFloat(r.amount) || 0), 0);
-    const what = joinAnd([...new Set(rec.map((r) => clean(r.vendor || "")).filter(Boolean))]) || "(insert items + vendors)";
-    $("authText").value = authEmailText({ name: $("authName").value.trim() || "(insert claimant's name)", matric: $("authMatric").value.trim() || "(insert matric no.)", total, what, event: clean($("finEvent").value) || "(insert event name)" });
-    const box = $("authFound");
-    if (zipAuth) {
-      box.innerHTML = `Found in the zip: <strong>${esc(zipAuth.name)}</strong>. <button type="button" class="link" id="authOrig">Download that file</button> to attach it as is, or use the copy below.`;
-      $("authOrig").onclick = async () => {
-        try { await saveFile(zipAuth.name, new Blob([zipAuth.data])); setStatus("authStatus", `Saved ${zipAuth.name}.`); }
-        catch (e) { setStatus("authStatus", e?.code === "declined" ? "Download cancelled." : `Couldn't save it (${e?.code || "error"}).`, e?.code !== "declined"); }
-      };
-    } else box.textContent = readRows.length ? "No authorisation email in this zip. Fill in the claimant below to make one." : "";
-  }
-  ["authName", "authMatric"].forEach((id) => $(id).addEventListener("input", renderAuth));
-  $("authCopy").onclick = async () => setStatus("authStatus", (await copyText($("authText").value)) ? "Copied." : "Couldn't copy here. Select the text and copy it instead.");
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const v = document.createElement("video"); v.muted = true; v.srcObject = stream; await v.play();
+      await new Promise((r) => setTimeout(r, 400));
+      const c = document.createElement("canvas"); c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext("2d").drawImage(v, 0, 0);
+      const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+      addAuth([new File([blob], `Capture ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.png`, { type: "image/png" })]);
+    } catch (e) {
+      setStatus("authStatus", e?.name === "NotAllowedError" ? "Capture cancelled." : "This browser can't capture windows. Paste a screenshot instead.", e?.name !== "NotAllowedError");
+    } finally { stream?.getTracks().forEach((t) => t.stop()); }
+  };
   $("authPdf").onclick = async () => {
-    const name = $("authName").value.trim(), matric = $("authMatric").value.trim();
-    if (!name || !matric) { setStatus("authStatus", "Fill in the claimant's name and matric no. first.", true); return; }
     const ev = clean($("finEvent").value) || "Event";
+    const btn = $("authPdf"); btn.disabled = true;
     try {
-      const pdf = await authEmailPdf({ name, matric, event: ev, body: $("authText").value });
+      const pdf = await buildPdf(authShots);
       await saveFile(`${ev} - Authorisation Email.pdf`, new Blob([pdf], { type: "application/pdf" }));
       setStatus("authStatus", `Saved ${ev} - Authorisation Email.pdf. Attach it in ICS.`);
     } catch (e) { setStatus("authStatus", e?.code === "declined" ? "Download cancelled." : `Couldn't save it (${e?.code || e?.message || "error"}).`, e?.code !== "declined"); }
+    finally { btn.disabled = !authShots.length; }
   };
 
   // ======================= tabs & start =======================

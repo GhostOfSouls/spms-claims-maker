@@ -15,13 +15,13 @@
 5. Open "Claim email" and fill "Your name" and "Your matric no.".
 6. When the checklist under "Your loot" has no blocking items, click "Download zip".
 
-Output zip: `(event) - Budget.xlsx`, `(event) - Authorisation Email.pdf` (the claimant's authorisation for the FinCon to claim on their behalf), `SAO/` and `SPMS Office/`, with files named `Vendor (Item) Receipt - $Amount.pdf` and `Vendor (Item) Proof of Payment - $Amount.pdf`.
+Output zip: `(event) - Budget.xlsx`, `SAO/` and `SPMS Office/`, with files named `Vendor (Item) Receipt - $Amount.pdf` and `Vendor (Item) Proof of Payment - $Amount.pdf`.
 
 ### FinCon reader (tab "W2 FINCON READER")
 1. Add a claim zip. "Event name" is filled from the budget sheet or zip name. Each receipt becomes an editable row (Description, which is "Event Vendor $Amount" for ICS, Vendor, Amount, Receipt no., Date of receipt as DD/MM/YYYY, Invoice no.).
 2. Fill the rows by hand (View shows the file) or click "Read with AI".
 3. "+ Add row" and "Remove" add and delete rows, and "Copy table for Excel" copies everything as tab-separated text.
-4. "Authorisation email" shows the claimant's authorisation (from the zip if present) and downloads it as a PDF to attach in ICS.
+4. "Authorisation email" takes screenshots of the claimant's actual email (paste with Ctrl+V / Cmd+V, drop, choose a file, or "Capture mail window") and downloads them as `(event) - Authorisation Email.pdf` to attach in ICS. Pasting an image on the Pack tab adds it as a receipt.
 
 ## Claim rules (SPMS AY2026/27)
 - One receipt plus one proof of payment per purchase, every file a PDF.
