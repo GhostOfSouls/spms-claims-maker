@@ -226,10 +226,10 @@ tr.pv td { background: #f4f4f4; }
     <ol>
       <li>Type the event name into "Event name".</li>
       <li>Optional: set the file input "Budget sheet file (.xlsx)" to the event budget sheet.</li>
-      <li>Set the file input "Receipt and proof of payment files" to the photos, screenshots or PDFs. Each file becomes one document row.</li>
+      <li>Set the file input "Receipt and proof of payment files" to the photos, screenshots or PDFs, or to one zip of them. Each file becomes one document row. From a zip, a budget sheet is picked up, other files are skipped, and names that already follow "Vendor (Item) Receipt - $Amount" (in SAO/ or SPMS Office/ folders) fill the row in.</li>
       <li>For each document row (a group named "Document N"), fill Fund (SAO or SPMS Office), Vendor, What was bought, Document (Receipt or Proof of Payment) and Amount ($). Or set up the AI reader and click "Fill in with AI", then check the rows.</li>
       <li>Open "Claim email" and fill "Your name" and "Your matric no.".</li>
-      <li>Read the checklist under "Your loot"; when nothing blocks it, click "Download zip". The zip holds the budget sheet and SAO/ and SPMS Office/ folders of PDFs named "Vendor (Item) Receipt - $Amount.pdf".</li>
+      <li>Read the checklist under "Your loot"; when nothing blocks it, click "Download zip". The zip holds the budget sheet, "(event) - Claim Details.txt" (every purchase with fund, vendor, item, amount, date, receipt no., ICS description, its receipt and proof file names and the authorisation email text) and SAO/ and SPMS Office/ folders of PDFs named "Vendor (Item) Receipt - $Amount.pdf".</li>
     </ol>
     <h3>FinCon reader (tab "W2 FINCON READER")</h3>
     <ol>
@@ -304,9 +304,9 @@ tr.pv td { background: #f4f4f4; }
         <div class="drop" id="drop" tabindex="0" role="button" aria-label="Add receipts and proofs of payment">
           <div class="qblock" aria-hidden="true">?</div>
           <strong>INSERT RECEIPTS</strong>
-          <span class="small">or click to choose. Photos, screenshots and PDFs. A receipt split over several screenshots is fine; keep them in order.</span>
+          <span class="small">or click to choose. Photos, screenshots and PDFs, or one zip of them. A receipt split over several screenshots is fine; keep them in order.</span>
         </div>
-        <input type="file" id="fileInput" class="sr-only" accept="image/*,application/pdf,.pdf" multiple aria-label="Receipt and proof of payment files" tabindex="-1">
+        <input type="file" id="fileInput" class="sr-only" accept="image/*,application/pdf,.pdf,.zip,application/zip" multiple aria-label="Receipt and proof of payment files" tabindex="-1">
         <input type="file" id="pageInput" class="sr-only" accept="image/*,application/pdf,.pdf" multiple aria-label="Extra page for a document" tabindex="-1">
 
         <div class="bar">
@@ -801,7 +801,7 @@ tr.pv td { background: #f4f4f4; }
     const list = shown();
     const p = plan(list);
     const ev = eventName();
-    const rows = [budget ? `${esc(ev)} - Budget.xlsx` : `<span class="dim">${esc(ev)} - Budget.xlsx  (not added)</span>`];
+    const rows = [budget ? `${esc(ev)} - Budget.xlsx` : `<span class="dim">${esc(ev)} - Budget.xlsx  (not added)</span>`, `${esc(ev)} - Claim Details.txt`];
     for (const fund of FUNDS) {
       const inFund = p.filter((x) => x.it.fund === fund);
       if (inFund.length) rows.push({ dir: `<span class="dir ${fund === "SAO" ? "sao" : "office"}">${fund}/</span>`, kids: inFund.map((x) => esc(x.name)) });
@@ -867,15 +867,70 @@ I, ${name}, ${matric} will allow the claimant ${fcName}, ${fcMatric} to claim on
   }
   function renderAll() { renderItems(); renderSide(); }
 
-  function addFiles(fileList) {
-    const files = [...fileList].filter((f) => isPdf(f) || (f.type || "").startsWith("image/") || /\.(heic|heif|jpe?g|png|webp)$/i.test(f.name));
-    if (!files.length) { setStatus("status", "Only photos, screenshots and PDFs can be added."); return; }
+  const isDoc = (f) => isPdf(f) || (f.type || "").startsWith("image/") || /\.(heic|heif|jpe?g|png|webp)$/i.test(f.name);
+  const isZip = (f) => /\.zip$/i.test(f.name || "") || /zip/i.test(f.type || "");
+  const MIME = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", heic: "image/heic", heif: "image/heif" };
+
+  // Read what a file name already says, e.g. "SPMS Office/Wingstop (Group Dinner) Receipt - $338.75.pdf"
+  // or a loose "paynow wingstop 338.75.png", so a zip of named files needs no typing.
+  function guessFromName(path) {
+    const name = path.split("/").pop().replace(/\.[^.]+$/, "");
+    const g = {};
+    const folder = path.split("/").slice(0, -1).join("/");
+    if (/\bSAO\b/i.test(folder)) g.fund = "SAO"; else if (/SPMS\s*Office|\boffice\b/i.test(folder)) g.fund = "SPMS Office";
+    const m = name.match(/^(.+?)\s*(?:\((.+)\))?\s+(Receipt|Proof of Payment)\s*-\s*\$?\s*([\d,]+(?:\.\d+)?)(?:\s*\(\d+\))?$/i);
+    if (m) {
+      g.vendor = clean(m[1]); g.item = clean(m[2] || ""); g.kind = /proof/i.test(m[3]) ? "Proof of Payment" : "Receipt"; g.amount = money(m[4].replace(/,/g, ""));
+      return g;
+    }
+    if (/proof|payment|paynow|paylah|transfer|transaction/i.test(name)) g.kind = "Proof of Payment";
+    else if (/receipt|invoice|order/i.test(name)) g.kind = "Receipt";
+    const a = name.match(/\$\s*([\d,]+(?:\.\d{1,2})?)/);
+    if (a) g.amount = money(a[1].replace(/,/g, ""));
+    return g;
+  }
+
+  // Unpack a zip of receipts: photos and PDFs become documents, a budget sheet is picked up,
+  // and junk (Mac resource files, hidden files, anything else) is skipped.
+  async function unpackZip(zf) {
+    const zip = await JSZip.loadAsync(zf);
+    const entries = Object.values(zip.files)
+      .filter((e) => !e.dir && !/(^|\/)(__MACOSX|\.)/.test(e.name))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const docs = [], skipped = [];
+    let sheet = null;
+    for (const e of entries) {
+      const name = e.name.split("/").pop();
+      const ext = (name.match(/\.([^.]+)$/) || [])[1]?.toLowerCase() || "";
+      if (/^xlsx?$/.test(ext)) { if (!sheet) sheet = new File([await e.async("blob")], name, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); continue; }
+      if (!MIME[ext]) { skipped.push(name); continue; }
+      docs.push({ file: new File([await e.async("blob")], name, { type: MIME[ext] }), guess: guessFromName(e.name) });
+    }
+    return { docs, sheet, skipped };
+  }
+
+  async function addFiles(fileList) {
+    const all = [...fileList];
+    const zips = all.filter(isZip);
+    const docs = all.filter((f) => !isZip(f) && isDoc(f)).map((file) => ({ file, guess: guessFromName(file.name) }));
+    const notes = [];
+    for (const z of zips) {
+      setStatus("status", `Opening ${z.name}…`);
+      try {
+        const r = await unpackZip(z);
+        docs.push(...r.docs);
+        if (r.sheet && !budget) await setBudget(r.sheet);
+        if (!clean($("event").value)) $("event").value = clean(z.name.replace(/\.zip$/i, "").replace(/[_]+/g, " ").replace(/\s*\b(claims?|receipts?)\s*$/i, ""));
+        notes.push(`${z.name}: ${r.docs.length} file${r.docs.length === 1 ? "" : "s"}${r.sheet ? " and the budget sheet" : ""}${r.skipped.length ? `, skipped ${r.skipped.length} other file${r.skipped.length === 1 ? "" : "s"}` : ""}.`);
+      } catch { notes.push(`Couldn't open ${z.name}. Make sure it's a .zip file.`); }
+    }
+    if (!docs.length) { setStatus("status", notes.join(" ") || "Only photos, screenshots, PDFs and zips of them can be added."); return; }
     const prev = items.at(-1);
-    for (const f of files) {
-      const it = { id: nextId++, fund: prev?.fund || "SPMS Office", vendor: "", item: "", kind: "Receipt", amount: "", date: "", receiptNo: "", files: [f] };
+    for (const { file, guess } of docs) {
+      const it = { id: nextId++, fund: prev?.fund || "SPMS Office", vendor: "", item: "", kind: "Receipt", amount: "", date: "", receiptNo: "", files: [file], ...guess };
       items.push(it); precheck(it);
     }
-    setStatus("status", ""); renderAll(); renderAI();
+    setStatus("status", notes.join(" ")); renderAll(); renderAI();
   }
   async function precheck(it) {
     for (const f of it.files) {
@@ -899,8 +954,8 @@ I, ${name}, ${matric} will allow the claimant ${fcName}, ${fcMatric} to claim on
   $("addFilesBtn").onclick = () => $("fileInput").click();
   $("pageInput").onchange = (e) => { if (pageTarget) { pageTarget.files.push(...e.target.files); precheck(pageTarget); renderAll(); } pageTarget = null; e.target.value = ""; };
   $("budgetBtn").onclick = () => $("budgetInput").click();
-  $("budgetInput").onchange = async (e) => {
-    budget = e.target.files[0] || budget; e.target.value = "";
+  async function setBudget(file) {
+    budget = file || budget;
     $("budgetName").textContent = budget ? budget.name : "Not added yet";
     $("budgetBtn").textContent = budget ? "Replace" : "Add budget sheet";
     budgetText = "";
@@ -916,7 +971,8 @@ I, ${name}, ${matric} will allow the claimant ${fcName}, ${fcMatric} to claim on
       } catch { budgetText = ""; }
     }
     renderAll();
-  };
+  }
+  $("budgetInput").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; setBudget(f); };
   $("event").addEventListener("input", renderAll);
 
   const PACK_PROMPT = (n, budgetCsv, before) => `You are helping a student club treasurer at NTU (Singapore) file expense claims.
@@ -1028,6 +1084,57 @@ Rules:
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   }
 
+  // A plain-text summary that goes into the zip: every purchase with its receipt and proof, fund,
+  // amounts, dates, receipt numbers, ICS descriptions and the authorisation email text.
+  function detailsName() { return `${eventName()} - Claim Details.txt`; }
+  function claimDetailsText() {
+    const ev = eventName();
+    const p = plan(items);
+    const pathOf = (it) => p.find((x) => x.it === it)?.path || "";
+    const from = (it) => { const n = p.find((x) => x.it === it)?.name; const o = it.files.map((f) => f.name); return o.length && !(o.length === 1 && o[0] === n) ? `  (renamed from ${o.join(", ")})` : ""; };
+    const receipts = items.filter((x) => x.kind === "Receipt");
+    const proofs = items.filter((x) => x.kind === "Proof of Payment");
+    const used = new Set();
+    const purchases = receipts.map((r) => {
+      const pr = proofs.find((x) => !used.has(x) && x.fund === r.fund && money(x.amount) === money(r.amount));
+      if (pr) used.add(pr);
+      return { r, pr };
+    });
+    const orphans = proofs.filter((x) => !used.has(x));
+    const sum = (fund) => receipts.filter((x) => !fund || x.fund === fund).reduce((s, x) => s + (parseFloat(x.amount) || 0), 0);
+    const today = new Date().toLocaleDateString("en-GB");
+    const L = [];
+    L.push(`${ev} - Claim Details`, `Made with SPMS Claim Packer on ${today}`, "");
+    L.push(`Event: ${ev}`);
+    L.push(`Claimant: ${$("myName").value.trim() || "(not filled in)"}${$("myMatric").value.trim() ? `, ${$("myMatric").value.trim()}` : ""}`);
+    L.push(`FinCon: ${$("fcName").value.trim() || "Darius Toh Zheng Ting"}${$("fcMatric").value.trim() ? `, ${$("fcMatric").value.trim()}` : ""}`);
+    L.push(`Budget sheet: ${budget ? `${ev} - Budget.xlsx` : "not included, add it before emailing"}`, "");
+    L.push("TOTALS");
+    L.push(`  SAO receipts:         $${sum("SAO").toFixed(2)}`);
+    L.push(`  SPMS Office receipts: $${sum("SPMS Office").toFixed(2)}`);
+    L.push(`  Total:                $${sum().toFixed(2)}`, "");
+    L.push(`PURCHASES (${purchases.length})`);
+    purchases.forEach(({ r, pr }, i) => {
+      L.push("", `${i + 1}. ${clean(r.vendor) || "Vendor"}${clean(r.item) ? ` (${clean(r.item)})` : ""} - $${money(r.amount) || "0.00"}`);
+      L.push(`   Fund:             ${r.fund}`);
+      L.push(`   Vendor:           ${clean(r.vendor)}`);
+      L.push(`   What was bought:  ${clean(r.item)}`);
+      L.push(`   Amount:           $${money(r.amount) || "0.00"}`);
+      if (r.date) L.push(`   Date of receipt:  ${r.date}`);
+      if (r.receiptNo) L.push(`   Receipt no.:      ${r.receiptNo}`);
+      if (r.note && /^Budget line/.test(r.note)) L.push(`   ${r.note}`);
+      L.push(`   ICS description:  ${ev} ${clean(r.vendor)} $${money(r.amount) || "0.00"}`);
+      L.push(`   Receipt file:     ${pathOf(r)}${from(r)}`);
+      L.push(`   Proof of payment: ${pr ? `${pathOf(pr)}${from(pr)}` : "MISSING, no proof of payment with the same amount and fund"}`);
+    });
+    if (orphans.length) {
+      L.push("", "PROOFS OF PAYMENT WITH NO MATCHING RECEIPT");
+      orphans.forEach((x) => L.push(`  - ${pathOf(x)} ($${money(x.amount) || "0.00"})${from(x)}`));
+    }
+    L.push("", "AUTHORISATION EMAIL", "", $("emailText").value);
+    return L.join("\r\n") + "\r\n";
+  }
+
   $("packBtn").onclick = async () => {
     const btn = $("packBtn"); btn.disabled = true;
     try {
@@ -1039,6 +1146,7 @@ Rules:
         setStatus("status", `Converting ${i + 1} of ${p.length}: ${p[i].name}`);
         zip.file(p[i].path, await buildPdf(p[i].it.files));
       }
+      zip.file(detailsName(), claimDetailsText());
       setStatus("status", "Zipping…");
       const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
       try { await saveFile(`${ev}.zip`, blob); setStatus("status", budget ? `Saved ${ev}.zip. Attach it to your claim email.` : `Saved ${ev}.zip. Remember to add ${ev} - Budget.xlsx into the zip before you email it.`); }
