@@ -263,6 +263,7 @@ tr.pv td { background: #f4f4f4; }
               <option value="groq">Groq (free key)</option>
               <option value="anthropic">Claude API (paid key)</option>
               <option value="openai">OpenAI (paid key)</option>
+              <option value="deepseek">DeepSeek (paid key)</option>
             </select>
           </label>
           <label class="f" for="apiKey" id="keyWrap">API key
@@ -421,6 +422,8 @@ tr.pv td { background: #f4f4f4; }
       how: "sign up, then create an API key" },
     anthropic: { name: "Claude API", model: "claude-haiku-5-5", batch: 10, keyUrl: "https://console.anthropic.com/settings/keys", keyHost: "console.anthropic.com" },
     openai: { name: "OpenAI", model: "gpt-4o-mini", batch: 10, base: "https://api.openai.com/v1", keyUrl: "https://platform.openai.com/api-keys", keyHost: "platform.openai.com/api-keys" },
+    // deepseek-flash is DeepSeek's model that can read images; its older chat models are text only.
+    deepseek: { name: "DeepSeek", model: "deepseek-flash", batch: 10, base: "https://api.deepseek.com", keyUrl: "https://platform.deepseek.com/api_keys", keyHost: "platform.deepseek.com/api_keys" },
   };
   const DEFAULT_MODEL = Object.fromEntries([["builtin", ""], ...Object.entries(PROVIDERS).map(([k, v]) => [k, v.model])]);
 
@@ -576,6 +579,7 @@ tr.pv td { background: #f4f4f4; }
         const pref = (id) => (/gemini|qwen.*vl|llama-4|mistral-small|gemma-3/i.test(id) ? 1 : 0);
         return list.sort((a, b) => pref(b.id) - pref(a.id) || (b.context_length || 0) - (a.context_length || 0)).map((m) => m.id);
       }
+      if (p === "deepseek") return [PROVIDERS.deepseek.model];
       if (p === "groq") {
         const r = await fetch(PROVIDERS.groq.base + "/models", { headers: { authorization: "Bearer " + key } });
         const ids = ((await r.json())?.data || []).map((m) => m.id);
@@ -606,7 +610,7 @@ tr.pv td { background: #f4f4f4; }
           body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: "user", content }] }),
         });
       } else {
-        // OpenAI-style chat API (OpenRouter, Groq, OpenAI).
+        // OpenAI-style chat API (OpenRouter, Groq, OpenAI, DeepSeek).
         const content = [{ type: "text", text: prompt }];
         for (const b of images) content.push({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + (await blobToB64(b)) } });
         const headers = { "content-type": "application/json", authorization: "Bearer " + key };
