@@ -10,12 +10,12 @@
 ### Pack a claim (tab "W1 PACK A CLAIM")
 1. Fill "Event name".
 2. Optional: add the budget sheet (.xlsx). Without it the page still downloads, but reminds you to add it.
-3. Add the receipt and proof files. Each file becomes a group "Document N" with Fund (SAO / SPMS Office), Vendor, What was bought, Document (Receipt / Proof of Payment) and Amount ($).
+3. Add the receipt and proof files, or one zip of them (a budget sheet inside is picked up, other files are skipped, and files already named `Vendor (Item) Receipt - $Amount.pdf` fill their row in). Each file becomes a group "Document N" with Fund (SAO / SPMS Office), Vendor, What was bought, Document (Receipt / Proof of Payment) and Amount ($).
 4. Fill those fields, or pick an AI provider under "Power-up: AI reader" and click "Fill in with AI".
 5. Open "Claim email" and fill "Your name" and "Your matric no.".
 6. When the checklist under "Your loot" has no blocking items, click "Download zip".
 
-Output zip: `(event) - Budget.xlsx`, `SAO/` and `SPMS Office/`, with files named `Vendor (Item) Receipt - $Amount.pdf` and `Vendor (Item) Proof of Payment - $Amount.pdf`.
+Output zip: `(event) - Budget.xlsx`, `(event) - Claim Details.txt` (each purchase's fund, vendor, item, amount, date, receipt no., ICS description, receipt and proof file names, and the authorisation email text), `SAO/` and `SPMS Office/`, with files named `Vendor (Item) Receipt - $Amount.pdf` and `Vendor (Item) Proof of Payment - $Amount.pdf`.
 
 ### FinCon reader (tab "W2 FINCON READER")
 1. Add a claim zip. "Event name" is filled from the budget sheet or zip name. Each receipt becomes an editable row (Description, which is "Event Vendor $Amount" for ICS, Vendor, Amount, Receipt no., Date of receipt as DD/MM/YYYY, Invoice no.).
