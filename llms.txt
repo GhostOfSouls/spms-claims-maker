@@ -23,6 +23,10 @@ Output zip: `(event) - Budget.xlsx`, `SAO/` and `SPMS Office/`, with files named
 3. "+ Add row" and "Remove" add and delete rows, and "Copy table for Excel" copies everything as tab-separated text.
 4. "Authorisation email" takes screenshots of the claimant's actual email (paste with Ctrl+V / Cmd+V, drop, choose a file, or "Capture mail window") and downloads them as `(event) - Authorisation Email.pdf` to attach in ICS. Pasting an image on the Pack tab adds it as a receipt.
 
+### PDF maker (tab "W3 PDF MAKER")
+1. Add images or PDFs through the file input "Files to convert", drop them, or paste a screenshot or copied text with Ctrl+V / Cmd+V while the tab is open. Each becomes a page; the arrows reorder pages and the cross removes one.
+2. Type the file name into "PDF name" (".pdf" is added) and click "Download PDF". The page also opens on this tab at index.html#pdf.
+
 ## Claim rules (SPMS AY2026/27)
 - One receipt plus one proof of payment per purchase, every file a PDF.
 - Email the zip with the authorisation template to spmsclub-financial@e.ntu.edu.sg within one week of the event.

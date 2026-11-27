@@ -212,6 +212,15 @@ input.cell:disabled { background: #eee; }
 .cpbtn { font-size: 16px; padding: 0 8px; min-width: 0; }
 .cpbtn.done { background: var(--pipe); color: #fcfcfc; }
 tr.pv td { background: #f4f4f4; }
+.convlist { display: flex; flex-wrap: wrap; gap: 10px; }
+.convlist:empty { display: none; }
+.convpage { display: grid; gap: 4px; justify-items: center; font-size: 17px; color: var(--muted); }
+.convpage .thumb { width: 96px; height: 96px; }
+.convpage .ctl { display: flex; gap: 2px; }
+.convpage .ctl button { padding: 2px 6px; font-size: 9px; }
+.convname { display: flex; align-items: center; gap: 6px; }
+.convname input { flex: 1; min-width: 0; }
+.convname .mono { font-family: var(--body); font-size: 22px; color: var(--ink); letter-spacing: 0; }
 .pvimgs { display: flex; gap: 8px; overflow-x: auto; }
 .pvimgs img { max-height: 520px; max-width: 100%; border: 3px solid var(--ink); background: #fff; }
 @media (prefers-reduced-motion: reduce) { .blink { animation: none; } }
@@ -236,6 +245,11 @@ tr.pv td { background: #f4f4f4; }
       <li>Set the file input "Claim zip file" to a claim zip. Each receipt becomes an editable row.</li>
       <li>Fill or check Vendor, Amount, Receipt no., Date of receipt (DD/MM/YYYY) and Invoice no. for each row, or click "Read with AI".</li>
       <li>"+ Add row" adds a blank row, "Remove" deletes one, and "Copy table for Excel" copies everything as tab-separated text.</li>
+    </ol>
+    <h3>PDF maker (tab "W3 PDF MAKER")</h3>
+    <ol>
+      <li>Set the file input "Files to convert" to images or PDFs, or paste an image or text with Ctrl+V / Cmd+V while this tab is open. Each one becomes a page, in order.</li>
+      <li>Type the file name into "PDF name" and click "Download PDF".</li>
     </ol>
   </section>
   <div class="hud" aria-label="Claim summary">
@@ -282,6 +296,7 @@ tr.pv td { background: #f4f4f4; }
   <div class="tabs" role="tablist">
     <button type="button" class="tab" role="tab" id="tabPack" aria-selected="true" aria-controls="viewPack"><span class="w">W1</span> PACK A CLAIM</button>
     <button type="button" class="tab" role="tab" id="tabRead" aria-selected="false" aria-controls="viewRead"><span class="w">W2</span> FINCON READER</button>
+    <button type="button" class="tab" role="tab" id="tabConv" aria-selected="false" aria-controls="viewConv"><span class="w">W3</span> PDF MAKER</button>
   </div>
 
   <!-- ===================== PACK ===================== -->
@@ -390,6 +405,29 @@ tr.pv td { background: #f4f4f4; }
         <span class="status" id="authStatus" role="status"></span>
       </div>
       <div class="pvimgs" id="authPreview"></div>
+    </div>
+  </section>
+
+  <!-- ===================== PDF MAKER ===================== -->
+  <section id="viewConv" role="tabpanel" aria-labelledby="tabConv" hidden style="display:grid;gap:20px">
+    <div class="panel" style="display:grid;gap:12px">
+      <h2>ANYTHING TO PDF</h2>
+      <p class="small" style="margin:0">Paste a screenshot or copied text with <span class="mono">Ctrl+V</span> / <span class="mono">Cmd+V</span> anywhere on this tab, or drop in images and PDFs. Each one becomes a page, in the order shown.</p>
+      <div class="drop" id="convDrop" tabindex="0" role="button" aria-label="Choose files to convert">
+        <div class="qblock" aria-hidden="true">?</div>
+        <strong>PASTE, DROP OR CLICK</strong>
+        <span class="small">Images, screenshots, PDFs or pasted text</span>
+      </div>
+      <input type="file" id="convInput" class="sr-only" accept="image/*,application/pdf,.pdf" multiple aria-label="Files to convert" tabindex="-1">
+      <div class="convlist" id="convList"></div>
+      <label class="f" for="convName">PDF name
+        <span class="convname"><input type="text" id="convName" placeholder="e.g. Wingstop (Group Dinner) Receipt - $338.75" autocomplete="off" spellcheck="false"><span class="mono">.pdf</span></span>
+      </label>
+      <div class="bar">
+        <button type="button" class="primary" id="convPdf" disabled>Download PDF</button>
+        <button type="button" class="link" id="convClear" hidden>Clear</button>
+        <span class="status" id="convStatus" role="status"></span>
+      </div>
     </div>
   </section>
 </div>
@@ -1272,6 +1310,14 @@ Rules:
   document.addEventListener("paste", (e) => {
     const files = [...(e.clipboardData?.items || [])].filter((x) => x.kind === "file").map((x) => x.getAsFile()).filter(Boolean)
       .map((f, n) => new File([f], f.name && f.name !== "image.png" ? f.name : `Screenshot ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}${n ? "-" + n : ""}.png`, { type: f.type || "image/png" }));
+    if (!$("viewConv").hidden) {
+      const text = files.length ? "" : (e.clipboardData?.getData("text/plain") || "");
+      const t = e.target;
+      if (!files.length && (!text.trim() || (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")))) return;
+      e.preventDefault();
+      if (files.length) addConv(files); else addConvText(text);
+      return;
+    }
     if (!files.length) return;
     e.preventDefault();
     if ($("viewRead").hidden) addFiles(files); else addAuth(files);
@@ -1304,16 +1350,88 @@ Rules:
     finally { btn.disabled = !authShots.length; }
   };
 
+  // ======================= PDF MAKER =======================
+  let convFiles = [];   // Files (images or PDFs) that become the pages of one PDF, in order
+  function addConv(files) {
+    const ok = [...files].filter((f) => isPdf(f) || (f.type || "").startsWith("image/"));
+    if (!ok.length) { setStatus("convStatus", "Only images, screenshots and PDFs work here. Paste text with Ctrl+V / Cmd+V.", true); return; }
+    convFiles.push(...ok);
+    if (!clean($("convName").value)) $("convName").value = ok[0].name.replace(/\.[^.]+$/, "");
+    setStatus("convStatus", `${convFiles.length} page${convFiles.length === 1 ? "" : "s"} ready. Add more or download.`);
+    renderConv();
+  }
+  // Pasted text is drawn onto A4-shaped images (any language or symbol works), one image per page.
+  function addConvText(text) {
+    const W = 1240, H = 1754, M = 100, FS = 30, LH = 42;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d"); g.font = `${FS}px Arial, Helvetica, sans-serif`;
+    const lines = [];
+    for (const para of text.replace(/\r\n?/g, "\n").replace(/\t/g, "    ").split("\n")) {
+      let line = "";
+      for (const word of para.split(/(\s+)/)) {
+        if (g.measureText(line + word).width <= W - 2 * M) { line += word; continue; }
+        if (line.trim()) lines.push(line.trimEnd());
+        line = word.trimStart();
+        while (g.measureText(line).width > W - 2 * M) {   // a single very long word
+          let k = line.length; while (k > 1 && g.measureText(line.slice(0, k)).width > W - 2 * M) k--;
+          lines.push(line.slice(0, k)); line = line.slice(k);
+        }
+      }
+      lines.push(line.trimEnd());
+    }
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    const per = Math.floor((H - 2 * M) / LH), stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+    const pages = [];
+    for (let i = 0; i < lines.length; i += per) {
+      g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+      g.fillStyle = "#000"; g.font = `${FS}px Arial, Helvetica, sans-serif`; g.textBaseline = "top";
+      lines.slice(i, i + per).forEach((l, j) => g.fillText(l, M, M + j * LH));
+      const url = c.toDataURL("image/png"), bin = atob(url.split(",")[1]), u8 = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) u8[k] = bin.charCodeAt(k);
+      pages.push(new File([u8], `Text ${stamp}${pages.length ? "-" + (pages.length + 1) : ""}.png`, { type: "image/png" }));
+    }
+    if (pages.length) addConv(pages);
+  }
+  function renderConv() {
+    const box = $("convList"); box.innerHTML = "";
+    convFiles.forEach((f, i) => {
+      const el = document.createElement("div"); el.className = "convpage";
+      if (isPdf(f)) { const d = document.createElement("div"); d.className = "thumb"; d.textContent = "PDF"; el.append(d); }
+      else { const img = document.createElement("img"); img.className = "thumb"; img.alt = `Page ${i + 1}`; img.src = thumbUrl(f); el.append(img); }
+      const lab = document.createElement("span"); lab.textContent = `Page ${i + 1}`; el.append(lab);
+      const ctl = document.createElement("div"); ctl.className = "ctl";
+      const mk = (txt, label, fn, off) => { const b = document.createElement("button"); b.type = "button"; b.textContent = txt; b.setAttribute("aria-label", `${label} page ${i + 1}`); b.disabled = !!off; b.onclick = fn; ctl.append(b); };
+      mk("◀", "Move earlier", () => { [convFiles[i - 1], convFiles[i]] = [convFiles[i], convFiles[i - 1]]; renderConv(); }, i === 0);
+      mk("✕", "Remove", () => { convFiles.splice(i, 1); setStatus("convStatus", ""); renderConv(); });
+      mk("▶", "Move later", () => { [convFiles[i + 1], convFiles[i]] = [convFiles[i], convFiles[i + 1]]; renderConv(); }, i === convFiles.length - 1);
+      el.append(ctl); box.append(el);
+    });
+    $("convPdf").disabled = !convFiles.length; $("convClear").hidden = !convFiles.length;
+  }
+  wireDrop($("convDrop"), $("convInput"), addConv);
+  $("convClear").onclick = () => { convFiles = []; $("convName").value = ""; setStatus("convStatus", ""); renderConv(); };
+  $("convPdf").onclick = async () => {
+    const name = (clean($("convName").value).replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "Converted") + ".pdf";
+    const btn = $("convPdf"); btn.disabled = true;
+    try {
+      setStatus("convStatus", "Converting...");
+      const pdf = await buildPdf(convFiles);
+      await saveFile(name, new Blob([pdf], { type: "application/pdf" }));
+      setStatus("convStatus", `Saved ${name}.`);
+    } catch (e) { setStatus("convStatus", e?.code === "declined" ? "Download cancelled." : `Couldn't make the PDF (${e?.code || e?.message || "error"}).`, e?.code !== "declined"); }
+    finally { btn.disabled = !convFiles.length; }
+  };
+  $("convName").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("convPdf").disabled) $("convPdf").click(); });
+
   // ======================= tabs & start =======================
+  const TABS = { pack: ["tabPack", "viewPack"], read: ["tabRead", "viewRead"], pdf: ["tabConv", "viewConv"] };
   function showTab(which) {
-    const pack = which === "pack";
-    $("tabPack").setAttribute("aria-selected", pack); $("tabRead").setAttribute("aria-selected", !pack);
-    $("viewPack").hidden = !pack; $("viewRead").hidden = pack;
+    if (!TABS[which]) which = "pack";
+    for (const [k, [tab, view]] of Object.entries(TABS)) { $(tab).setAttribute("aria-selected", k === which); $(view).hidden = k !== which; }
     store.set("cp_tab", which);
   }
-  $("tabPack").onclick = () => showTab("pack");
-  $("tabRead").onclick = () => showTab("read");
-  showTab(location.hash === "#fincon" ? "read" : store.get("cp_tab") || "pack");
+  for (const k of Object.keys(TABS)) $(TABS[k][0]).onclick = () => showTab(k);
+  showTab(location.hash === "#fincon" ? "read" : location.hash === "#pdf" ? "pdf" : store.get("cp_tab") || "pack");
 
   renderAll();
   renderTable();
